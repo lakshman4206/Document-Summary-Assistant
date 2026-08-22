@@ -114,43 +114,14 @@ const cleanExtractedText = (text) => {
 
   let cleaned = text;
 
-  // Clean OCR noise and form headers
-  cleaned = cleaned.replace(/Combined Defence Services [A-Za-z]+\s+[A-Za-z]+\s+\([^)]+\)/gi, " ");
-  cleaned = cleaned.replace(/Application Printed On:.*?(?=\n|$)/gi, " ");
-  cleaned = cleaned.replace(/Sure\?\s*Te lies ar ran/gi, " ");
-  cleaned = cleaned.replace(/Tr SYR STANT Curse/gi, " ");
-  cleaned = cleaned.replace(/Page \d+ of \d+|\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}:\d{2}/gi, " ");
-  cleaned = cleaned.replace(/Is the above name same as the name printed on.*?:\s*Yes/gi, " ");
-  cleaned = cleaned.replace(/Applicable to those who are already in government service.*?(?=\n|$)/gi, " ");
+  // Generic document cleanup: page numbers, timestamps, citation brackets
+  cleaned = cleaned.replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, " ");
+  cleaned = cleaned.replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
+  cleaned = cleaned.replace(/\[\s*\d+\s*\]/g, " ");
 
-  // Fix OCR typos
-  cleaned = cleaned.replace(/\btial Art\b/gi, "Martial Arts");
-  cleaned = cleaned.replace(/\bBasic tial Art\b/gi, "Basic Martial Arts");
-  cleaned = cleaned.replace(/\brainee\b/gi, "Trainee");
-  cleaned = cleaned.replace(/\bApplicati\b/gi, "Application");
-  cleaned = cleaned.replace(/\bExaminati\b/gi, "Examination");
-  cleaned = cleaned.replace(/\bheadquaters\b/gi, "headquarters");
-  cleaned = cleaned.replace(/\bPassout\b/gi, "Passing");
-  cleaned = cleaned.replace(/\[Sender/gi, "");
-
-  const unwantedPatterns = [
-    /rise\s+spoken\s+english/gi,
-    /institute\s+of\s+spoken\s+english/gi,
-    /ramu\s*:/gi,
-    /available\s*[-–]\s*books/gi,
-    /dvds?\s*&?\s*books?/gi,
-    /www\.[^\s]+/gi,
-    /https?:\/\/[^\s]+/gi,
-    /\b[\w.-]+@[\w.-]+\.\w+\b/gi,
-    /\b(?:\+?\d[\d\s\-()]{7,}\d)\b/g
-  ];
-
-  unwantedPatterns.forEach((pattern) => {
-    cleaned = cleaned.replace(pattern, " ");
-  });
-
+  // Remove common noise symbols and decorative glyphs
   cleaned = cleaned.replace(/(?:^|\s)(?:page\s*)?\d{1,4}(?:\s|$)/gi, " ");
-  cleaned = cleaned.replace(/[|¦§¤©®™→←↑↓↔↕•▪▫◦■□◆◇~`^_=]+/g, " ");
+  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u00A9\u00AE\u2122\u2192\u2190\u2191\u2193\u2194\u2195\u2022\u25AA\u25AB\u25E6\u25A0\u25A1\u25C6\u25C7~`^_=]+/g, " ");
   cleaned = cleaned.replace(/\[[^\]]{0,150}\]/g, " ");
   cleaned = cleaned.replace(/([,.!?;:]){2,}/g, "$1");
 
@@ -164,7 +135,7 @@ const cleanExtractedText = (text) => {
 
     const letters = (trimmed.match(/[A-Za-z]/g) || []).length;
     const numbers = (trimmed.match(/\d/g) || []).length;
-    const symbols = (trimmed.match(/[^A-Za-z0-9\s.,!?'"’():;\-]/g) || []).length;
+    const symbols = (trimmed.match(/[^A-Za-z0-9\s.,!?'"\u2018\u2019():;\-]/g) || []).length;
 
     if (letters < 3) continue;
     if (symbols > letters * 1.2) continue;
@@ -195,17 +166,21 @@ const cleanExtractedText = (text) => {
 const fixGrammarAndHomophones = (text) => {
   if (!text) return "";
 
-  let t = text;
+  let t = text.trim();
 
-  // Article agreement ("a" vs "an")
+  // 1. Article agreement ("a" vs "an" with phonetic exceptions)
   t = t.replace(/\b([Aa])\s+([aeiouAEIOU]\w*)/g, (match, p1, p2) => {
-    return /^(?:univ|use|uniq|unit|user|eul|euro)/i.test(p2) ? "a " + p2 : "an " + p2;
+    const isConsonantSound = /^(?:univ|use|uniq|unit|user|eul|euro|one|once)/i.test(p2);
+    return isConsonantSound ? "a " + p2 : "an " + p2;
   });
   t = t.replace(/\b([Aa])n\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]\w*)/g, (match, p1, p2) => {
-    return /^(?:hour|honest|honor|heir)/i.test(p2) ? "an " + p2 : "a " + p2;
+    const isVowelSound = /^(?:hour|honest|honor|heir)/i.test(p2);
+    return isVowelSound ? "an " + p2 : "a " + p2;
   });
 
+  // 2. Comprehensive grammar, homophone, redundancy, and flow rules
   const rules = [
+    // Comparisons: than vs then
     [/\bmore\s+then\b/gi, "more than"],
     [/\bless\s+then\b/gi, "less than"],
     [/\bfaster\s+then\b/gi, "faster than"],
@@ -214,16 +189,30 @@ const fixGrammarAndHomophones = (text) => {
     [/\brather\s+then\b/gi, "rather than"],
     [/\bearlier\s+then\b/gi, "earlier than"],
     [/\bhigher\s+then\b/gi, "higher than"],
-    [/\byour\s+(welcome|right|going|able|ready|invited)\b/gi, "you're $1"],
-    [/\byou're\s+(name|car|house|file|document|profile|email)\b/gi, "your $1"],
-    [/\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy)\b/gi, "its $1"],
-    [/\bthere\s+(names|features|results|findings|skills)\b/gi, "their $1"],
-    [/\btheir\s+(is|are|was|were|will be)\b/gi, "there $1"],
+    [/\blower\s+then\b/gi, "lower than"],
+    [/\bother\s+then\b/gi, "other than"],
+    // you're vs your
+    [/\byour\s+(welcome|right|going|able|ready|invited|doing)\b/gi, "you're $1"],
+    [/\byou're\s+(name|car|house|file|document|profile|email|data|work)\b/gi, "your $1"],
+    // its vs it's
+    [/\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy|structure|content|growth)\b/gi, "its $1"],
+    // their vs there
+    [/\bthere\s+(names|features|results|findings|skills|roles|efforts)\b/gi, "their $1"],
+    [/\btheir\s+(is|are|was|were|will be|can be|has been)\b/gi, "there $1"],
+    // affect vs effect
     [/\bthe\s+affect\s+of\b/gi, "the effect of"],
     [/\ba\s+significant\s+affect\b/gi, "a significant effect"],
-    [/\bdata\s+are\b/gi, "data is"],
+    [/\bhave\s+an\s+affect\s+on\b/gi, "have an effect on"],
+    // Conciseness
+    [/\bin\s+order\s+to\b/gi, "to"],
+    [/\bdue\s+to\s+the\s+fact\s+that\b/gi, "because"],
+    [/\bat\s+the\s+present\s+time\b/gi, "currently"],
+    // Subject-verb agreement
     [/\beveryone\s+are\b/gi, "everyone is"],
     [/\bsomeone\s+are\b/gi, "someone is"],
+    // Duplicate word removal (e.g. "the the")
+    [/\b(the|and|in|of|to|is|that)\s+\1\b/gi, "$1"],
+    // Punctuation & spacing
     [/\s+([,.:;?!])/g, "$1"],
     [/([,.:;?!])([A-Za-z])/g, "$1 $2"],
     [/\s{2,}/g, " "]
@@ -233,133 +222,20 @@ const fixGrammarAndHomophones = (text) => {
     t = t.replace(pattern, repl);
   }
 
+  // Capitalize the first letter of every sentence
+  t = t.replace(/(^|[.!?]\s+)([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
+
   return t.trim();
 };
 
-const cleanPersonName = (rawName) => {
-  if (!rawName) return "";
-
-  const stopLabels = new Set([
-    "identity", "profile", "first", "middle", "last", "name", "date", "birth", "dob",
-    "father", "mother", "urn", "application", "gender", "email", "mobile", "uploaded",
-    "live", "photo", "profi", "class", "matriculation", "board", "examination", "roll",
-    "year", "passing", "percentage", "marks", "aadhaar", "nationality", "place", "state",
-    "district", "mother tongue", "village", "post", "office", "pin", "marital", "spouse",
-    "i", "pro", "signature", "status", "occupation", "annual", "income"
-  ]);
-
-  const words = rawName.match(/[A-Za-z]+/g) || [];
-  const cleanWords = [];
-
-  for (const w of words) {
-    if (stopLabels.has(w.toLowerCase())) break;
-    if (w.length > 1) {
-      cleanWords.push(w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-    }
-    if (cleanWords.length >= 4) break;
-  }
-
-  while (
-    cleanWords.length &&
-    (cleanWords[cleanWords.length - 1].length <= 2 ||
-      ["pro", "profi", "pro."].includes(
-        cleanWords[cleanWords.length - 1].toLowerCase()
-      ))
-  ) {
-    cleanWords.pop();
-  }
-
-  return cleanWords.join(" ");
-};
-
-const extractFormCandidateName = (text) => {
-  const m1 = text.match(
-    /(?:Full Name as declared by Candidate|Candidate Name|Full Name)\s*:?\s*([A-Za-z\s]{4,60})/i
-  );
-  if (m1 && m1[1]) {
-    const name = cleanPersonName(m1[1]);
-    if (name.length >= 4) return name;
-  }
-
-  const fn = text.match(/First Name\s*:?\s*([A-Za-z]+)/i);
-  const mn = text.match(/Middle Name\s*:?\s*([A-Za-z]+)/i);
-  const ln = text.match(/Last Name\s*:?\s*([A-Za-z]+)/i);
-
-  if (fn && ln) {
-    const parts = [fn[1].charAt(0).toUpperCase() + fn[1].slice(1).toLowerCase()];
-    if (mn && !["none", "na", "n/a", "last", "name"].includes(mn[1].toLowerCase())) {
-      parts.push(mn[1].charAt(0).toUpperCase() + mn[1].slice(1).toLowerCase());
-    }
-    parts.push(ln[1].charAt(0).toUpperCase() + ln[1].slice(1).toLowerCase());
-    return parts.join(" ");
-  }
-
-  return "Kadapala Lakshmana Murthy";
-};
-
-const detectAndSynthesizeFormDocument = (text) => {
-  if (!text) return null;
-
-  const formIndicators = [
-    "application submitted", "public service commission", "universal registration number",
-    "father's name", "mother's name", "date of birth", "matriculation", "identity profile",
-    "b.tech", "degree", "examination", "roll number", "district", "domicile", "upsc"
-  ];
-  const matches = formIndicators.filter((ind) => text.toLowerCase().includes(ind)).length;
-  if (matches < 3) return null;
-
-  const candidateName = extractFormCandidateName(text);
-
-  let examName = "Combined Defence Services (II) Examination";
-  const examMatch = text.match(/(?:Exam Name|Submitted Application Form for)\s*:?\s*([A-Za-z0-9\s()]{5,45})/i);
-  if (examMatch && examMatch[1]) {
-    const rawEx = examMatch[1].replace(/\b(Application|Submitted|Identity|Profile|On|Page|Date)\b/gi, "").trim();
-    if (rawEx.length > 3) examName = rawEx.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-  }
-
-  let fatherName = "Kadapala Sreenivasa Murthy";
-  const fatherMatch = text.match(/Father'?s Name\s*:?\s*([A-Za-z\s]{4,40})/i);
-  if (fatherMatch && fatherMatch[1]) {
-    const fname = cleanPersonName(fatherMatch[1]);
-    if (fname.length > 3) fatherName = fname;
-  }
-
-  let motherName = "Sammetla Lavanya";
-  const motherMatch = text.match(/Mother'?s Name\s*:?\s*([A-Za-z\s]{4,40})/i);
-  if (motherMatch && motherMatch[1]) {
-    const mname = cleanPersonName(motherMatch[1]);
-    if (mname.length > 3) motherName = mname;
-  }
-
-  const location = "Anantapur, Andhra Pradesh, India";
-  const dob = "04/02/2006 (04 February 2006)";
-  const eduSummary = "appearing in the final year of Bachelor of Technology (B.Tech) in Computer Science and Engineering at VIT-AP University, having previously completed secondary schooling under the Board of Secondary Education, Andhra Pradesh";
-  const achievementSummary = "a Regional Taekwondo Gold Medalist with three years of specialized Martial Arts training and active engagement in competitive Cricket";
-
-  const p1 = `This document constitutes the official candidate application submitted for the ${examName} conducted by the Union Public Service Commission (UPSC).`;
-  const p2 = `The applicant, ${candidateName}, is the son of ${fatherName} and ${motherName}, residing permanently in ${location}, with a recorded date of birth on ${dob}.`;
-  const p3 = `In terms of educational qualifications, ${candidateName} is currently ${eduSummary}.`;
-  const p4 = `In extracurricular disciplines, the applicant has achieved distinction as ${achievementSummary}.`;
-
-  const summary = `${p1} ${p2} ${p3} ${p4}`;
-
-  const keyPoints = [
-    `Official Application Form submitted for the ${examName} (UPSC).`,
-    `Candidate Name: ${candidateName}.`,
-    `Parental Details: Father: ${fatherName} | Mother: ${motherName}.`,
-    `Permanent Domicile: ${location}.`,
-    `Educational Qualification: Final Year B.Tech (Computer Science & Engineering) at VIT-AP University.`,
-    `Extracurricular Achievements: Regional Taekwondo Gold Medalist (3 Years Martial Arts Training) & Cricket.`
-  ];
-
-  const keywords = ["UPSC", "Defence Services", "B.Tech", "Taekwondo", "Candidate", "Application"];
-
-  return { summary, keyPoints, keywords };
-};
+// (Form-specific hardcoded synthesis removed — the summarizer now works correctly for any document type)
 
 const getSentences = (text) => {
   if (!text) return [];
-  const abbrevs = ["e.g.", "i.e.", "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.", "vs.", "U.S.", "U.K.", "Inc.", "Ltd.", "p.m.", "a.m."];
+  const abbrevs = [
+    "e.g.", "i.e.", "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.", "vs.",
+    "U.S.", "U.K.", "Inc.", "Ltd.", "p.m.", "a.m.", "et al.", "Fig.", "No."
+  ];
   let protectedText = text;
   abbrevs.forEach((abb, idx) => {
     protectedText = protectedText.replaceAll(abb, `__ABB_${idx}__`);
@@ -372,23 +248,28 @@ const getSentences = (text) => {
       abbrevs.forEach((abb, idx) => {
         restored = restored.replaceAll(`__ABB_${idx}__`, abb);
       });
-      return restored.trim();
+      // Ensure sentence ends with punctuation
+      let trimmed = restored.trim();
+      if (trimmed && !/[.!?]$/.test(trimmed)) trimmed += ".";
+      // Apply grammar polish to every extracted sentence
+      return fixGrammarAndHomophones(trimmed);
     })
     .filter((s) => {
-      const words = s.split(/\s+/);
+      const words = s.split(/\s+/).filter(Boolean);
       const letters = (s.match(/[A-Za-z]/g) || []).length;
       return words.length >= 4 && letters >= 15;
     });
 };
 
 const sentenceSimilarity = (first, second) => {
-  const firstWords = new Set(tokenize(first.text));
-  const secondWords = new Set(tokenize(second.text));
+  const text1 = typeof first === "string" ? first : first.text;
+  const text2 = typeof second === "string" ? second : second.text;
+  const firstWords = new Set(tokenize(text1));
+  const secondWords = new Set(tokenize(text2));
 
   if (!firstWords.size || !secondWords.size) return 0;
 
   let common = 0;
-
   firstWords.forEach((word) => {
     if (secondWords.has(word)) common++;
   });
@@ -406,16 +287,59 @@ const extractKeywords = (text, maxTags = 5) => {
     .map(([word]) => word.charAt(0).toUpperCase() + word.slice(1));
 };
 
+const generateImprovementSuggestions = (keyPoints, keywords, originalText) => {
+  const suggestions = [];
+  if (!originalText) return suggestions;
+
+  const words = originalText.trim().split(/\s+/).filter(Boolean);
+  const totalWords = words.length;
+  const sentences = getSentences(originalText);
+  const avgSentenceLength = Math.round(totalWords / Math.max(sentences.length, 1));
+
+  if (avgSentenceLength > 28) {
+    suggestions.push(
+      "Sentence Complexity: This document averages " + avgSentenceLength + " words per sentence. " +
+      "Consider breaking lengthy sentences into shorter, focused statements to enhance readability."
+    );
+  } else if (avgSentenceLength < 10 && totalWords > 100) {
+    suggestions.push(
+      "Flow & Transitions: Sentences are quite brief. Adding transitional phrases such as " +
+      "'Consequently' or 'Furthermore' will strengthen narrative cohesion between ideas."
+    );
+  } else {
+    suggestions.push(
+      "Readability: Sentence length is well-balanced (" + avgSentenceLength + " words/sentence), " +
+      "providing a comfortable and engaging reading pace."
+    );
+  }
+
+  if (originalText.includes(":") || originalText.includes("•")) {
+    suggestions.push(
+      "Structure: Good use of lists or section dividers. Ensure each section heading clearly " +
+      "signals the topic covered below it for maximum clarity."
+    );
+  } else if (totalWords > 300) {
+    suggestions.push(
+      "Document Structure: Adding bullet points, bold key terms, or section headers would make " +
+      "key insights easier to scan, especially for executive or summary review."
+    );
+  }
+
+  if (keywords && keywords.length > 0) {
+    suggestions.push(
+      "Core Themes: The primary focus areas are — " + keywords.slice(0, 3).join(", ") + ". " +
+      "Ensure your conclusion directly addresses each of these themes for a strong, unified narrative."
+    );
+  }
+
+  return suggestions;
+};
+
 const createInBrowserSummary = (
   text,
   length = "medium",
   tone = "standard"
 ) => {
-  const formResult = detectAndSynthesizeFormDocument(text);
-  if (formResult) {
-    return formResult;
-  }
-
   const cleaned = cleanExtractedText(text);
 
   if (!cleaned) {
@@ -429,9 +353,19 @@ const createInBrowserSummary = (
   const sentences = getSentences(cleaned);
 
   if (!sentences.length) {
+    const fallback = fixGrammarAndHomophones(cleaned);
     return {
-      summary: cleaned,
-      keyPoints: [],
+      summary: fallback,
+      keyPoints: [fallback],
+      keywords: extractKeywords(cleaned)
+    };
+  }
+
+  if (sentences.length <= 2) {
+    const sText = sentences.join(" ");
+    return {
+      summary: sText,
+      keyPoints: sentences,
       keywords: extractKeywords(cleaned)
     };
   }
@@ -440,11 +374,10 @@ const createInBrowserSummary = (
   const maxFrequency = Math.max(...Object.values(frequency), 1);
 
   const importantPatterns = [
-    /\b(main|important|key|central|primary|critical|crucial|essential)\b/i,
-    /\b(started|began|decided|wanted|tried|attempted|planned|noticed|realized|understood|learned|discovered)\b/i,
-    /\b(caused|resulted|led to|because|therefore|so|due to|as a result|consequently|outcomes)\b/i,
-    /\b(breakthrough|innovation|growth|increase|decrease|reduced|improved|developed|engineered)\b/i,
-    /\b(conclusion|finally|in the end|lesson|moral|result|findings|summary)\b/i
+    /\b(crucial|primary|essential|significant|major|concluded|resulted|demonstrated|revealed|objective|breakthrough|achieved|strategy|finding|developed|growth|priority|outcome|increase|decrease|innovation|policy)\b/i,
+    /\b(started|began|decided|planned|realized|discovered|learned)\b/i,
+    /\b(caused|led to|therefore|due to|as a result|consequently)\b/i,
+    /\b(conclusion|finally|summary|overall|in total|specifically)\b/i
   ];
 
   const scored = sentences.map((sentence, index) => {
@@ -453,65 +386,41 @@ const createInBrowserSummary = (
 
     if (words.length > 0) {
       let wordScore = 0;
-
       words.forEach((word) => {
         wordScore += (frequency[word] || 0) / maxFrequency;
       });
-
-      score += (wordScore / words.length) * 2;
+      score += (wordScore / words.length) * 2.2;
     }
 
-    if (index === 0) score += 1.4;
+    // Positional bias
+    if (index === 0) score += 1.5;
     if (index === 1) score += 0.8;
     if (index === sentences.length - 1) score += 1.2;
 
-    if (importantPatterns.some((pattern) => pattern.test(sentence))) {
-      score += 1.2;
-    }
+    if (importantPatterns.some((p) => p.test(sentence))) score += 1.3;
 
-    const wordCount = words.length;
+    // Sentence length suitability
+    const wc = sentence.split(/\s+/).length;
+    if (wc >= 10 && wc <= 35) score += 0.6;
+    if (wc > 50) score -= 0.4;
+    if (wc < 6) score -= 0.5;
 
-    if (wordCount >= 8 && wordCount <= 35) score += 0.6;
-    if (wordCount > 50) score -= 0.3;
-
-    return {
-      text: sentence,
-      index,
-      score
-    };
+    return { text: sentence, index, score };
   });
 
   const documentWordCount = cleaned.split(/\s+/).length;
 
   let summaryTarget = 3;
-  let keyPointTarget = 3;
+  let keyPointTarget = 4;
 
   if (length === "short") {
-    summaryTarget =
-      documentWordCount < 500
-        ? 2
-        : documentWordCount < 2000
-          ? 3
-          : 5;
-
+    summaryTarget = documentWordCount < 400 ? 2 : documentWordCount < 1500 ? 3 : 4;
     keyPointTarget = 3;
   } else if (length === "long") {
-    summaryTarget =
-      documentWordCount < 500
-        ? 5
-        : documentWordCount < 2000
-          ? 8
-          : 12;
-
+    summaryTarget = documentWordCount < 400 ? 4 : documentWordCount < 1500 ? 7 : 10;
     keyPointTarget = 6;
   } else {
-    summaryTarget =
-      documentWordCount < 500
-        ? 3
-        : documentWordCount < 2000
-          ? 5
-          : 8;
-
+    summaryTarget = documentWordCount < 400 ? 3 : documentWordCount < 1500 ? 5 : 7;
     keyPointTarget = 4;
   }
 
@@ -519,64 +428,39 @@ const createInBrowserSummary = (
 
   const ranked = [...scored].sort((a, b) => b.score - a.score);
 
+  // Maximum Marginal Relevance: pick diverse, high-scoring sentences
   const selected = [];
-
   for (const candidate of ranked) {
-    const duplicate = selected.some(
-      (existing) => sentenceSimilarity(candidate, existing) > 0.58
+    const isDup = selected.some(
+      (existing) => sentenceSimilarity(candidate, existing) > 0.52
     );
-
-    if (!duplicate) selected.push(candidate);
-
+    if (!isDup) selected.push(candidate);
     if (selected.length >= summaryTarget) break;
   }
 
-  if (sentences.length >= 4) {
-    const first = scored[0];
-    const last = scored[scored.length - 1];
-
-    if (!selected.some((item) => item.index === first.index)) {
-      if (selected.length >= summaryTarget) selected.pop();
-      selected.push(first);
-    }
-
-    if (!selected.some((item) => item.index === last.index)) {
-      if (selected.length >= summaryTarget) selected.pop();
-      selected.push(last);
-    }
-  }
-
+  // Restore natural reading order
   selected.sort((a, b) => a.index - b.index);
 
   let summary = selected.map((item) => item.text).join(" ");
+  summary = fixGrammarAndHomophones(summary);
 
   if (tone === "bullet") {
-    summary = selected
-      .map((item) => `• ${item.text}`)
-      .join("\n\n");
+    summary = selected.map((item) => `• ${item.text}`).join("\n\n");
   }
 
-  const keyCandidates = [...ranked].sort(
-    (a, b) => b.score - a.score
-  );
-
+  // Generate key takeaways with MMR diversity
   const keyPoints = [];
-
-  for (const candidate of keyCandidates) {
-    const duplicate = keyPoints.some(
-      (existing) => sentenceSimilarity(candidate, existing) > 0.45
+  for (const candidate of ranked) {
+    const isDup = keyPoints.some(
+      (existing) => sentenceSimilarity(candidate.text, existing) > 0.42
     );
-
-    if (!duplicate) keyPoints.push(candidate);
-
+    if (!isDup) keyPoints.push(candidate.text);
     if (keyPoints.length >= keyPointTarget) break;
   }
 
-  keyPoints.sort((a, b) => a.index - b.index);
-
   return {
     summary,
-    keyPoints: keyPoints.map((item) => item.text),
+    keyPoints: keyPoints.map((kp) => fixGrammarAndHomophones(kp)),
     keywords: extractKeywords(cleaned, 6)
   };
 };

@@ -12,7 +12,7 @@ from spell_cleaner import (
     correct_spelling,
     robust_sentence_split,
     local_textrank_summarize,
-    detect_and_synthesize_form_document
+    fix_grammar_and_homophones
 )
 
 load_dotenv()
@@ -69,20 +69,12 @@ def summarize(request: SummaryRequest):
             detail="No document text was provided."
         )
 
-    # 1. Clean formatting & OCR artifacts
+    # 1. Clean formatting, broken hyphens, & OCR artifacts generically
     cleaned_input = clean_text_formatting(request.text.strip()[:8000])
-
-    # 2. Check if text is a form/resume/structured application profile
-    form_summary, form_key_points = detect_and_synthesize_form_document(cleaned_input)
-    if form_summary and form_key_points:
-        return SummaryResponse(
-            summary=form_summary,
-            key_points=form_key_points
-        )
 
     summary_text = ""
 
-    # 3. Attempt Hugging Face summarization if client is available
+    # 2. Attempt Hugging Face neural summarization if client is available
     if client:
         try:
             res = client.summarization(
@@ -95,19 +87,19 @@ def summarize(request: SummaryRequest):
         except Exception as error:
             print("Hugging Face API unavailable or returned error:", repr(error))
 
-    # 4. If HF API was unavailable, missing token, or failed, use local NLP summarizer
+    # 3. If HF API was unavailable, missing token, or failed, use smart local NLP summarizer
     if not summary_text:
         summary_text, _ = local_textrank_summarize(cleaned_input, length=request.length)
 
-    # 5. Apply spell correction to eliminate typos and tokenization glitches
+    # 4. Apply spell and grammar corrections to ensure pristine fluency and sentence formation
     summary_text = correct_spelling(summary_text)
+    summary_text = fix_grammar_and_homophones(summary_text)
 
-    # 6. Extract bullet points cleanly using NLTK robust sentence boundary splitting
+    # 5. Extract bullet points cleanly using robust sentence boundary splitting
     sentences = robust_sentence_split(summary_text)
     
-    # Filter and format key points based on length preference
     target_count = 2 if request.length == "short" else 5 if request.length == "long" else 3
-    key_points = [correct_spelling(s) for s in sentences[:target_count]]
+    key_points = [fix_grammar_and_homophones(correct_spelling(s)) for s in sentences[:target_count]]
     
     if not key_points:
         key_points = [summary_text]
