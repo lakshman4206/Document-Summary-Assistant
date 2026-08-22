@@ -17,21 +17,21 @@ CUSTOM_DICTIONARY = {
     "workflows", "dashboard", "dashboards", "analytics", "parameter", "parameters",
     "scalability", "framework", "frameworks", "infrastructure", "optimization",
     "algorithm", "algorithms", "automation", "authentication", "authorization",
-    
+
     # Official & Educational Terminology
     "taekwondo", "matriculation", "ssc", "hsc", "upsc", "cds", "nda", "gate",
     "tehsildar", "tahsildar", "sachivalayam", "grama", "ward", "domicile", "cadet",
     "trainee", "candidate", "applicant", "curriculum", "extracurricular",
-    
+
     # Indian States, UTs & Regions
     "andhra", "pradesh", "telangana", "karnataka", "tamil", "nadu", "kerala",
     "maharashtra", "gujarat", "rajasthan", "punjab", "haryana", "delhi", "uttar",
     "bihar", "bengal", "odisha", "assam", "kashmir", "ladakh", "goa", "mp", "up",
-    
+
     # Districts & Cities
     "anantapur", "georgepet", "hyderabad", "bengaluru", "chennai", "mumbai",
     "amaravati", "vijayawada", "visakhapatnam", "tirupati", "guntur", "kurnool",
-    
+
     # Common Names & Surnames
     "kadapala", "lakshmana", "murthy", "sreenivasa", "sammetla", "lavanya",
     "reddy", "rao", "naidu", "kumar", "singh", "sharma", "verma", "patel",
@@ -44,7 +44,7 @@ def clean_person_name(raw_name: str) -> str:
     """Extract strictly the clean person name, eliminating any adjacent table/form labels or OCR noise."""
     if not raw_name:
         return ""
-    
+
     stop_labels = {
         "identity", "profile", "first", "middle", "last", "name", "date", "birth", "dob",
         "father", "mother", "urn", "application", "gender", "email", "mobile", "uploaded",
@@ -53,10 +53,10 @@ def clean_person_name(raw_name: str) -> str:
         "district", "mother tongue", "village", "post", "office", "pin", "marital", "spouse",
         "i", "pro", "signature", "status", "occupation", "annual", "income"
     }
-    
+
     words = re.findall(r'[A-Za-z]+', raw_name)
     clean_words = []
-    
+
     for w in words:
         if w.lower() in stop_labels:
             break
@@ -64,21 +64,24 @@ def clean_person_name(raw_name: str) -> str:
             clean_words.append(w.capitalize())
         if len(clean_words) >= 4:
             break
-            
+
     while clean_words and (len(clean_words[-1]) <= 2 or clean_words[-1].lower() in ["pro", "profi"]):
         clean_words.pop()
-        
+
     return " ".join(clean_words)
 
 
 def extract_form_candidate_name(text: str) -> str:
-    """Extract the candidate's exact full name cleanly."""
-    m1 = re.search(r'(?:Full Name as declared by Candidate|Candidate Name|Full Name)\s*:?\s*([A-Za-z\s]{4,60})', text, re.IGNORECASE)
+    """Extract the candidate's exact full name cleanly. Returns empty string if not found."""
+    m1 = re.search(
+        r'(?:Full Name as declared by Candidate|Candidate Name|Full Name)\s*:?\s*([A-Za-z\s]{4,60})',
+        text, re.IGNORECASE
+    )
     if m1:
         name = clean_person_name(m1.group(1))
         if len(name) >= 4:
             return name
-            
+
     fn = re.search(r'First Name\s*:?\s*([A-Za-z]+)', text, re.IGNORECASE)
     mn = re.search(r'Middle Name\s*:?\s*([A-Za-z]+)', text, re.IGNORECASE)
     ln = re.search(r'Last Name\s*:?\s*([A-Za-z]+)', text, re.IGNORECASE)
@@ -88,21 +91,29 @@ def extract_form_candidate_name(text: str) -> str:
             parts.append(mn.group(1).capitalize())
         parts.append(ln.group(1).capitalize())
         return " ".join(parts)
-        
-    return "Kadapala Lakshmana Murthy"
+
+    return ""  # Never return a hardcoded name
 
 
 def fix_grammar_and_homophones(text: str) -> str:
     """Enforces standard English grammatical rules, homophone corrections, and article agreement."""
     if not text:
         return ""
-    
+
     t = text
-    
+
     # 1. Article Agreement ("a" vs "an")
-    t = re.sub(r'\b[Aa]\s+([aeiouAEIOU]\w*)', lambda m: 'an ' + m.group(1) if not re.match(r'^(?:univ|use|uniq|unit|user|eul|euro)', m.group(1), re.I) else 'a ' + m.group(1), t)
-    t = re.sub(r'\b[Aa]n\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]\w*)', lambda m: 'an ' + m.group(1) if re.match(r'^(?:hour|honest|honor|heir)', m.group(1), re.I) else 'a ' + m.group(1), t)
-    
+    t = re.sub(
+        r'\b[Aa]\s+([aeiouAEIOU]\w*)',
+        lambda m: 'an ' + m.group(1) if not re.match(r'^(?:univ|use|uniq|unit|user|eul|euro)', m.group(1), re.I) else 'a ' + m.group(1),
+        t
+    )
+    t = re.sub(
+        r'\b[Aa]n\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]\w*)',
+        lambda m: 'an ' + m.group(1) if re.match(r'^(?:hour|honest|honor|heir)', m.group(1), re.I) else 'a ' + m.group(1),
+        t
+    )
+
     # 2. Homophones and Common Grammatical Errors
     rules = [
         # Comparison: than vs then
@@ -114,36 +125,36 @@ def fix_grammar_and_homophones(text: str) -> str:
         (r'\brather\s+then\b', 'rather than'),
         (r'\bearlier\s+then\b', 'earlier than'),
         (r'\bhigher\s+then\b', 'higher than'),
-        
+
         # Possessive vs Contraction: your vs you're
         (r'\byour\s+(welcome|right|going|able|ready|invited)\b', r"you're \1"),
         (r"\byou're\s+(name|car|house|file|document|profile|email)\b", r"your \1"),
-        
+
         # its vs it's
         (r"\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy)\b", r"its \1"),
-        
+
         # their vs there vs they're
         (r'\bthere\s+(names|features|results|findings|skills)\b', r"their \1"),
         (r'\btheir\s+(is|are|was|were|will be)\b', r"there \1"),
-        
+
         # affect vs effect
         (r'\bthe\s+affect\s+of\b', 'the effect of'),
         (r'\ba\s+significant\s+affect\b', 'a significant effect'),
-        
+
         # Subject-Verb Agreement common fixes
         (r'\bdata\s+are\b', 'data is'),
         (r'\beveryone\s+are\b', 'everyone is'),
         (r'\bsomeone\s+are\b', 'someone is'),
-        
+
         # Punctuation Spacing & Polish
         (r'\s+([,.:;?!])', r'\1'),
         (r'([,.:;?!])([A-Za-z])', r'\1 \2'),
         (r'\s{2,}', ' ')
     ]
-    
+
     for pattern, repl in rules:
         t = re.sub(pattern, repl, t, flags=re.IGNORECASE)
-        
+
     return t.strip()
 
 
@@ -151,7 +162,7 @@ def clean_text_formatting(text: str) -> str:
     """Clean PDF artifacts, OCR glitches, broken line-break hyphenations, and redundant whitespace."""
     if not text:
         return ""
-    
+
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
     # Fix hyphenated line breaks e.g. "techno- \n logy" -> "technology"
@@ -184,7 +195,7 @@ def clean_text_formatting(text: str) -> str:
     text = re.sub(r'[\t\f\v\xa0]', ' ', text)
     text = re.sub(r' +', ' ', text)
     text = re.sub(r'\s+([,.:;?!])', r'\1', text)
-    
+
     return text.strip()
 
 
@@ -195,7 +206,7 @@ def correct_spelling(text: str) -> str:
 
     tokens = re.findall(r"\w+(?:'\w+)?|[^\w\s]|\s+", text)
     corrected_tokens = []
-    
+
     for token in tokens:
         if re.match(r"^[A-Za-z]+$", token):
             if token.isupper() and len(token) > 1:
@@ -230,81 +241,129 @@ def correct_spelling(text: str) -> str:
     return result
 
 
-def detect_and_synthesize_form_document(text: str) -> tuple[str, list[str]]:
-    """Detect if input text is an application form, resume, or structured profile, and synthesize a complete, grammatically structured narrative."""
+def detect_and_synthesize_form_document(text: str) -> tuple[str | None, list[str] | None]:
+    """
+    Detect a real structured application form and synthesize a clean narrative
+    ONLY from fields that were actually extracted. No hardcoded personal data.
+    """
     cleaned_text = clean_text_formatting(text)
-    
-    form_indicators = [
-        "application submitted", "public service commission", "universal registration number",
-        "father's name", "mother's name", "date of birth", "matriculation", "identity profile",
-        "b.tech", "degree", "examination", "roll number", "district", "domicile", "upsc"
+    lower = cleaned_text.lower()
+
+    # Much stricter indicators – require clear form language
+    strong_indicators = [
+        "application submitted",
+        "public service commission",
+        "universal registration number",
+        "submitted application form",
+        "identity profile",
+        "full name as declared by candidate",
+        "candidate name",
+        "upsc",
+        "combined defence services",
     ]
-    matches = sum(1 for ind in form_indicators if ind in cleaned_text.lower())
-    
-    if matches < 3:
+    strong_matches = sum(1 for ind in strong_indicators if ind in lower)
+
+    # Weaker supporting signals
+    weak_indicators = [
+        "father's name", "mother's name", "date of birth",
+        "matriculation", "roll number", "domicile", "district"
+    ]
+    weak_matches = sum(1 for ind in weak_indicators if ind in lower)
+
+    # Require at least 2 strong signals OR 1 strong + 3 weak
+    if strong_matches < 2 and not (strong_matches >= 1 and weak_matches >= 3):
         return None, None
 
+    # ---- Extract only what is present ----
     candidate_name = extract_form_candidate_name(cleaned_text)
-    
-    # Extract Exam Name
-    exam_name = "Combined Defence Services (II) Examination"
-    exam_match = re.search(r'(?:Exam Name|Submitted Application Form for)\s*:?\s*([A-Za-z0-9\s()]{5,45})', cleaned_text, re.IGNORECASE)
+
+    exam_name = ""
+    exam_match = re.search(
+        r'(?:Exam Name|Submitted Application Form for|Application for)\s*:?\s*([A-Za-z0-9\s()]{5,60})',
+        cleaned_text, re.IGNORECASE
+    )
     if exam_match:
-        ex = exam_match.group(1).strip()
-        ex = re.sub(r'\b(Application|Submitted|Identity|Profile|On|Page|Date)\b', '', ex, flags=re.IGNORECASE).strip()
-        if len(ex) > 3:
+        ex = re.sub(
+            r'\b(Application|Submitted|Identity|Profile|On|Page|Date)\b',
+            '', exam_match.group(1), flags=re.IGNORECASE
+        ).strip()
+        if len(ex) > 4:
             exam_name = ex.title()
 
-    # Extract DOB
-    dob = "04/02/2006 (04 February 2006)"
-    dob_match = re.search(r'Date of Birth\s*:?\s*([^(\n]+(?:\(FOUR FEBRUARY TWO THOUSAND SIX\))?)', cleaned_text, re.IGNORECASE)
+    dob = ""
+    dob_match = re.search(
+        r'Date of Birth\s*:?\s*([0-9/.\-\sA-Za-z()]{6,50})',
+        cleaned_text, re.IGNORECASE
+    )
     if dob_match:
-        dob_str = dob_match.group(1).strip()
-        if "FOUR FEBRUARY TWO THOUSAND SIX" in dob_str or "04/02/2006" in cleaned_text:
-            dob = "04/02/2006 (04 February 2006)"
+        dob = re.sub(r'\s+', ' ', dob_match.group(1)).strip()
 
-    # Extract Parents
-    father_name = "Kadapala Sreenivasa Murthy"
-    father_match = re.search(r"Father'?s Name\s*:?\s*([A-Za-z\s]{4,40})", cleaned_text, re.IGNORECASE)
+    father_name = ""
+    father_match = re.search(
+        r"Father'?s Name\s*:?\s*([A-Za-z\s]{4,40})",
+        cleaned_text, re.IGNORECASE
+    )
     if father_match:
         fname = clean_person_name(father_match.group(1))
         if len(fname) > 3:
             father_name = fname
 
-    mother_name = "Sammetla Lavanya"
-    mother_match = re.search(r"Mother'?s Name\s*:?\s*([A-Za-z\s]{4,40})", cleaned_text, re.IGNORECASE)
+    mother_name = ""
+    mother_match = re.search(
+        r"Mother'?s Name\s*:?\s*([A-Za-z\s]{4,40})",
+        cleaned_text, re.IGNORECASE
+    )
     if mother_match:
         mname = clean_person_name(mother_match.group(1))
         if len(mname) > 3:
             mother_name = mname
 
-    location = "Anantapur, Andhra Pradesh, India"
+    # If we could not extract a usable name + at least one other field → abandon form mode
+    if not candidate_name or (not exam_name and not dob and not father_name):
+        return None, None
 
-    # Educational Background
-    edu_summary = "appearing in the final year of Bachelor of Technology (B.Tech) in Computer Science and Engineering at VIT-AP University, having previously completed secondary education under the Board of Secondary Education, Andhra Pradesh"
-    
-    # Achievements
-    achievement_summary = "a Regional Taekwondo Gold Medalist with three years of specialized Martial Arts training and active engagement in Cricket"
+    # ---- Build natural, grammatically correct sentences only from real data ----
+    sentences = []
 
-    # Frame Grammatically Complete Sentences with Clear Subjects, Predicates, and Actions
-    sentences = [
-        f"This document constitutes the official candidate application submitted for the {exam_name} conducted by the Union Public Service Commission (UPSC).",
-        f"The applicant, {candidate_name}, is the son of {father_name} and {mother_name}.",
-        f"The candidate is a permanent resident of {location} and was born on {dob}.",
-        f"Academically, {candidate_name} is currently {edu_summary}.",
-        f"In extracurricular disciplines, the applicant is distinguished as {achievement_summary}."
-    ]
+    if exam_name:
+        sentences.append(
+            f"This document is the official application form submitted for the {exam_name}."
+        )
+    else:
+        sentences.append("This document is a structured application form.")
+
+    if candidate_name:
+        if father_name and mother_name:
+            sentences.append(
+                f"The applicant, {candidate_name}, is the son/daughter of {father_name} and {mother_name}."
+            )
+        elif father_name:
+            sentences.append(
+                f"The applicant is {candidate_name}, son/daughter of {father_name}."
+            )
+        else:
+            sentences.append(f"The applicant’s name is {candidate_name}.")
+
+    if dob:
+        sentences.append(f"Date of birth recorded on the form is {dob}.")
 
     summary_text = " ".join(sentences)
+    summary_text = fix_grammar_and_homophones(summary_text)
+    summary_text = correct_spelling(summary_text)
 
-    key_points = [
-        f"Official Application Form submitted for the {exam_name} (UPSC).",
-        f"Candidate Name: {candidate_name}.",
-        f"Parental Information: Father: {father_name} | Mother: {mother_name}.",
-        f"Permanent Domicile: {location}.",
-        f"Educational Qualification: Final Year B.Tech (Computer Science & Engineering) at VIT-AP University.",
-        f"Extracurricular Achievements: Regional Taekwondo Gold Medalist (3 Years Martial Arts Training) & Cricket."
-    ]
+    # Ensure proper ending punctuation
+    if summary_text and summary_text[-1] not in ".!?":
+        summary_text += "."
+
+    key_points = []
+    if exam_name:
+        key_points.append(f"Application submitted for: {exam_name}")
+    if candidate_name:
+        key_points.append(f"Candidate: {candidate_name}")
+    if father_name or mother_name:
+        key_points.append(f"Parents: {father_name or 'N/A'} / {mother_name or 'N/A'}")
+    if dob:
+        key_points.append(f"Date of Birth: {dob}")
 
     return summary_text, key_points
 
@@ -328,7 +387,7 @@ def robust_sentence_split(text: str) -> list[str]:
         protected_text = protected_text.replace(abb, f"__ABB_{idx}__")
 
     raw_sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z0-9])', protected_text)
-    
+
     sentences = []
     for s in raw_sentences:
         for idx, abb in enumerate(abbrevs):
@@ -349,7 +408,7 @@ def local_textrank_summarize(text: str, length: str = "medium") -> tuple[str, li
     sentences = robust_sentence_split(text)
     if not sentences:
         return text, [text]
-    
+
     if len(sentences) <= 2:
         return text, sentences
 
@@ -359,8 +418,8 @@ def local_textrank_summarize(text: str, length: str = "medium") -> tuple[str, li
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
     stop_words = {
         "the", "and", "is", "of", "to", "a", "in", "that", "it", "with", "as", "for", "was",
-        "on", "are", "by", "an", "be", "this", "which", "or", "from", "at", "as", "your",
-        "all", "have", "new", "more", "an", "they", "we", "can", "us", "has", "been", "their"
+        "on", "are", "by", "an", "be", "this", "which", "or", "from", "at", "your",
+        "all", "have", "new", "more", "they", "we", "can", "us", "has", "been", "their"
     }
     filtered_words = [w for w in words if w not in stop_words]
     freq_dist = Counter(filtered_words)
@@ -370,7 +429,7 @@ def local_textrank_summarize(text: str, length: str = "medium") -> tuple[str, li
     for i, sent in enumerate(sentences):
         sent_words = re.findall(r'\b[a-zA-Z]{3,}\b', sent.lower())
         score = sum(freq_dist[w] / max_freq for w in sent_words if w in freq_dist)
-        
+
         if i == 0:
             score *= 1.4
         elif i == len(sentences) - 1:
@@ -384,6 +443,13 @@ def local_textrank_summarize(text: str, length: str = "medium") -> tuple[str, li
 
     selected_texts = [s[2] for s in top_sentences]
     summary_text = " ".join(selected_texts)
+
+    # Final grammar polish
+    summary_text = fix_grammar_and_homophones(summary_text)
+    summary_text = correct_spelling(summary_text)
+    if summary_text and summary_text[-1] not in ".!?":
+        summary_text += "."
+
     key_points = [correct_spelling(s) for s in selected_texts]
 
     return summary_text, key_points
