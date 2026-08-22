@@ -8,10 +8,6 @@ import "./App.css";
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
-/* =========================================================
-   NLP STOP WORDS & NOISE CLEANERS
-========================================================= */
-
 const STOP_WORDS = new Set([
   "about", "above", "after", "again", "against", "also",
   "although", "among", "because", "before", "being",
@@ -64,10 +60,6 @@ Experimental trials demonstrate an estimated 42% increase in volumetric energy d
 Production scalability remains the primary commercial bottleneck. The research consortium has initiated pilot manufacturing partnerships to refine continuous roll-to-roll sintering techniques, aiming for commercial deployment in consumer electronics and mobility sectors within three years.`
 };
 
-/* =========================================================
-   TEXT UTILITIES & CLEANING
-========================================================= */
-
 const tokenize = (text) =>
   text
     .toLowerCase()
@@ -92,9 +84,18 @@ const isLikelyNoiseToken = (token) => {
   const strange = (clean.match(/[^A-Za-z0-9'’-]/g) || []).length;
 
   if (letters === 1 && !KEEP_SHORT_WORDS.has(clean.toLowerCase())) return true;
-  if (letters === 2 && clean === clean.toUpperCase() && !["AI", "IT", "TV", "UK", "US", "ML", "UI", "UX"].includes(clean)) return true;
+
+  if (
+    letters === 2 &&
+    clean === clean.toUpperCase() &&
+    !["AI", "IT", "TV", "UK", "US", "ML", "UI", "UX"].includes(clean)
+  ) {
+    return true;
+  }
+
   if (strange > letters && letters < 4) return true;
   if (numbers > letters && letters < 4) return true;
+
   return false;
 };
 
@@ -110,6 +111,7 @@ const cleanSentenceTokens = (sentence) => {
 
 const cleanExtractedText = (text) => {
   if (!text) return "";
+
   let cleaned = text;
 
   const unwantedPatterns = [
@@ -138,6 +140,7 @@ const cleanExtractedText = (text) => {
 
   for (const line of lines) {
     const trimmed = line.trim();
+
     if (!trimmed) continue;
 
     const letters = (trimmed.match(/[A-Za-z]/g) || []).length;
@@ -163,6 +166,7 @@ const cleanExtractedText = (text) => {
     const words = cleanSentence.split(/\s+/).filter(Boolean);
 
     if (words.length < 4 || letters < 15) continue;
+
     finalSentences.push(cleanSentence);
   }
 
@@ -176,6 +180,7 @@ const getSentences = (text) => {
     .filter((s) => {
       const words = s.split(/\s+/);
       const letters = (s.match(/[A-Za-z]/g) || []).length;
+
       return words.length >= 4 && letters >= 15;
     });
 };
@@ -183,9 +188,11 @@ const getSentences = (text) => {
 const sentenceSimilarity = (first, second) => {
   const firstWords = new Set(tokenize(first.text));
   const secondWords = new Set(tokenize(second.text));
+
   if (!firstWords.size || !secondWords.size) return 0;
 
   let common = 0;
+
   firstWords.forEach((word) => {
     if (secondWords.has(word)) common++;
   });
@@ -193,29 +200,33 @@ const sentenceSimilarity = (first, second) => {
   return common / Math.max(firstWords.size, secondWords.size);
 };
 
-/* =========================================================
-   TOPIC TAGS & ENTITY EXTRACTION
-========================================================= */
-
 const extractKeywords = (text, maxTags = 5) => {
   const frequency = getWordFrequency(text);
-  const sorted = Object.entries(frequency)
+
+  return Object.entries(frequency)
     .sort((a, b) => b[1] - a[1])
     .filter(([word]) => word.length > 3 && !STOP_WORDS.has(word))
     .slice(0, maxTags)
     .map(([word]) => word.charAt(0).toUpperCase() + word.slice(1));
-  return sorted;
 };
 
-/* =========================================================
-   IN-BROWSER FAST SUMMARIZER
-========================================================= */
-
-const createInBrowserSummary = (text, length = "medium", tone = "standard") => {
+const createInBrowserSummary = (
+  text,
+  length = "medium",
+  tone = "standard"
+) => {
   const cleaned = cleanExtractedText(text);
-  if (!cleaned) return { summary: "", keyPoints: [], keywords: [] };
+
+  if (!cleaned) {
+    return {
+      summary: "",
+      keyPoints: [],
+      keywords: []
+    };
+  }
 
   const sentences = getSentences(cleaned);
+
   if (!sentences.length) {
     return {
       summary: cleaned,
@@ -241,9 +252,11 @@ const createInBrowserSummary = (text, length = "medium", tone = "standard") => {
 
     if (words.length > 0) {
       let wordScore = 0;
+
       words.forEach((word) => {
         wordScore += (frequency[word] || 0) / maxFrequency;
       });
+
       score += (wordScore / words.length) * 2;
     }
 
@@ -251,48 +264,81 @@ const createInBrowserSummary = (text, length = "medium", tone = "standard") => {
     if (index === 1) score += 0.8;
     if (index === sentences.length - 1) score += 1.2;
 
-    if (importantPatterns.some((pattern) => pattern.test(sentence))) score += 1.2;
+    if (importantPatterns.some((pattern) => pattern.test(sentence))) {
+      score += 1.2;
+    }
 
     const wordCount = words.length;
+
     if (wordCount >= 8 && wordCount <= 35) score += 0.6;
     if (wordCount > 50) score -= 0.3;
 
-    return { text: sentence, index, score };
+    return {
+      text: sentence,
+      index,
+      score
+    };
   });
 
   const documentWordCount = cleaned.split(/\s+/).length;
+
   let summaryTarget = 3;
   let keyPointTarget = 3;
 
   if (length === "short") {
-    summaryTarget = documentWordCount < 500 ? 2 : documentWordCount < 2000 ? 3 : 5;
+    summaryTarget =
+      documentWordCount < 500
+        ? 2
+        : documentWordCount < 2000
+          ? 3
+          : 5;
+
     keyPointTarget = 3;
   } else if (length === "long") {
-    summaryTarget = documentWordCount < 500 ? 5 : documentWordCount < 2000 ? 8 : 12;
+    summaryTarget =
+      documentWordCount < 500
+        ? 5
+        : documentWordCount < 2000
+          ? 8
+          : 12;
+
     keyPointTarget = 6;
   } else {
-    summaryTarget = documentWordCount < 500 ? 3 : documentWordCount < 2000 ? 5 : 8;
+    summaryTarget =
+      documentWordCount < 500
+        ? 3
+        : documentWordCount < 2000
+          ? 5
+          : 8;
+
     keyPointTarget = 4;
   }
 
   summaryTarget = Math.min(summaryTarget, sentences.length);
+
   const ranked = [...scored].sort((a, b) => b.score - a.score);
 
   const selected = [];
+
   for (const candidate of ranked) {
-    const duplicate = selected.some((existing) => sentenceSimilarity(candidate, existing) > 0.58);
+    const duplicate = selected.some(
+      (existing) => sentenceSimilarity(candidate, existing) > 0.58
+    );
+
     if (!duplicate) selected.push(candidate);
+
     if (selected.length >= summaryTarget) break;
   }
 
-  /* Keep first and last if long document */
   if (sentences.length >= 4) {
     const first = scored[0];
     const last = scored[scored.length - 1];
+
     if (!selected.some((item) => item.index === first.index)) {
       if (selected.length >= summaryTarget) selected.pop();
       selected.push(first);
     }
+
     if (!selected.some((item) => item.index === last.index)) {
       if (selected.length >= summaryTarget) selected.pop();
       selected.push(last);
@@ -302,17 +348,26 @@ const createInBrowserSummary = (text, length = "medium", tone = "standard") => {
   selected.sort((a, b) => a.index - b.index);
 
   let summary = selected.map((item) => item.text).join(" ");
+
   if (tone === "bullet") {
-    summary = selected.map((item) => `• ${item.text}`).join("\n\n");
+    summary = selected
+      .map((item) => `• ${item.text}`)
+      .join("\n\n");
   }
 
-  /* Key Points */
-  const keyCandidates = [...ranked].sort((a, b) => b.score - a.score);
+  const keyCandidates = [...ranked].sort(
+    (a, b) => b.score - a.score
+  );
+
   const keyPoints = [];
 
   for (const candidate of keyCandidates) {
-    const duplicate = keyPoints.some((existing) => sentenceSimilarity(candidate, existing) > 0.45);
+    const duplicate = keyPoints.some(
+      (existing) => sentenceSimilarity(candidate, existing) > 0.45
+    );
+
     if (!duplicate) keyPoints.push(candidate);
+
     if (keyPoints.length >= keyPointTarget) break;
   }
 
@@ -325,17 +380,21 @@ const createInBrowserSummary = (text, length = "medium", tone = "standard") => {
   };
 };
 
-/* =========================================================
-   DOCUMENT PARSERS
-========================================================= */
-
 const extractTextFromPDF = async (file, setProgress) => {
   const buffer = await file.arrayBuffer();
   const pdf = await getDocument({ data: buffer }).promise;
+
   let fullText = "";
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    setProgress(`Parsing PDF page ${pageNumber} of ${pdf.numPages}...`);
+  for (
+    let pageNumber = 1;
+    pageNumber <= pdf.numPages;
+    pageNumber++
+  ) {
+    setProgress(
+      `Parsing PDF page ${pageNumber} of ${pdf.numPages}...`
+    );
+
     const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
@@ -343,228 +402,433 @@ const extractTextFromPDF = async (file, setProgress) => {
     const items = content.items
       .map((item) => {
         const transform = item.transform || [];
+
         return {
           text: item.str || "",
           x: transform[4] || 0,
           y: transform[5] || 0,
-          angle: Math.atan2(transform[1] || 0, transform[0] || 1) * (180 / Math.PI)
+          angle:
+            Math.atan2(
+              transform[1] || 0,
+              transform[0] || 1
+            ) *
+            (180 / Math.PI)
         };
       })
       .filter((item) => {
         if (!item.text.trim()) return false;
         if (Math.abs(item.angle) > 45) return false;
-        if (item.y > viewport.height * 0.95 || item.y < viewport.height * 0.05) return false;
+        if (item.y > viewport.height * 0.95) return false;
+        if (item.y < viewport.height * 0.05) return false;
+
         return true;
       });
 
-    items.sort((a, b) => (Math.abs(a.y - b.y) > 4 ? b.y - a.y : a.x - b.x));
+    items.sort((a, b) =>
+      Math.abs(a.y - b.y) > 4
+        ? b.y - a.y
+        : a.x - b.x
+    );
 
     const lines = [];
+
     items.forEach((item) => {
       const last = lines[lines.length - 1];
+
       if (last && Math.abs(last.y - item.y) <= 4) {
         last.items.push(item);
       } else {
-        lines.push({ y: item.y, items: [item] });
+        lines.push({
+          y: item.y,
+          items: [item]
+        });
       }
     });
 
     const pageLines = lines.map((line) =>
-      line.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(" ")
+      line.items
+        .sort((a, b) => a.x - b.x)
+        .map((item) => item.text)
+        .join(" ")
     );
 
     fullText += pageLines.join("\n") + "\n";
   }
 
-  return { text: fullText, pdf };
+  return {
+    text: fullText,
+    pdf
+  };
 };
 
 const ocrScannedPDF = async (pdf, setProgress) => {
   const worker = await createWorker("eng");
+
   let fullText = "";
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    setProgress(`OCR optical recognition on page ${pageNumber} of ${pdf.numPages}...`);
+  for (
+    let pageNumber = 1;
+    pageNumber <= pdf.numPages;
+    pageNumber++
+  ) {
+    setProgress(
+      `OCR optical recognition on page ${pageNumber} of ${pdf.numPages}...`
+    );
+
     const page = await pdf.getPage(pageNumber);
     const viewport = page.getViewport({ scale: 2 });
+
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
+
     canvas.width = viewport.width;
     canvas.height = viewport.height;
 
-    await page.render({ canvasContext: context, viewport }).promise;
-    const { data: { text } } = await worker.recognize(canvas);
+    await page.render({
+      canvasContext: context,
+      viewport
+    }).promise;
+
+    const {
+      data: { text }
+    } = await worker.recognize(canvas);
+
     fullText += text + "\n";
   }
 
   await worker.terminate();
+
   return fullText;
 };
 
 const extractTextFromImage = async (file, setProgress) => {
-  setProgress("Scanning image with Tesseract OCR engine...");
+  setProgress(
+    "Scanning image with Tesseract OCR engine..."
+  );
+
   const worker = await createWorker("eng");
-  const { data: { text } } = await worker.recognize(file);
+
+  const {
+    data: { text }
+  } = await worker.recognize(file);
+
   await worker.terminate();
+
   return text;
 };
 
 const extractTextFromWord = async (file, setProgress) => {
-  setProgress("Parsing DOCX Word document structure...");
+  setProgress(
+    "Parsing DOCX Word document structure..."
+  );
+
   const buffer = await file.arrayBuffer();
-  const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+
+  const result = await mammoth.extractRawText({
+    arrayBuffer: buffer
+  });
+
   return result.value;
 };
 
-const extractTextFromPowerPoint = async (file, setProgress) => {
-  setProgress("Extracting slides from PowerPoint presentation...");
+const extractTextFromPowerPoint = async (
+  file,
+  setProgress
+) => {
+  setProgress(
+    "Extracting slides from PowerPoint presentation..."
+  );
+
   const buffer = await file.arrayBuffer();
   const zip = await JSZip.loadAsync(buffer);
 
   const slides = Object.keys(zip.files)
-    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+    .filter((name) =>
+      /^ppt\/slides\/slide\d+\.xml$/i.test(name)
+    )
     .sort((a, b) => {
-      const first = Number(a.match(/slide(\d+)/i)?.[1] || 0);
-      const second = Number(b.match(/slide(\d+)/i)?.[1] || 0);
+      const first = Number(
+        a.match(/slide(\d+)/i)?.[1] || 0
+      );
+
+      const second = Number(
+        b.match(/slide(\d+)/i)?.[1] || 0
+      );
+
       return first - second;
     });
 
   let fullText = "";
+
   for (let i = 0; i < slides.length; i++) {
-    setProgress(`Extracting slide ${i + 1} of ${slides.length}...`);
-    const xml = await zip.files[slides[i]].async("text");
+    setProgress(
+      `Extracting slide ${i + 1} of ${slides.length}...`
+    );
+
+    const xml = await zip.files[
+      slides[i]
+    ].async("text");
+
     const parser = new DOMParser();
-    const xmlDocument = parser.parseFromString(xml, "application/xml");
-    const textNodes = Array.from(xmlDocument.getElementsByTagName("a:t"));
-    const slideText = textNodes.map((node) => node.textContent).join(" ");
-    if (slideText.trim()) fullText += slideText + "\n";
+
+    const xmlDocument = parser.parseFromString(
+      xml,
+      "application/xml"
+    );
+
+    const textNodes = Array.from(
+      xmlDocument.getElementsByTagName("a:t")
+    );
+
+    const slideText = textNodes
+      .map((node) => node.textContent)
+      .join(" ");
+
+    if (slideText.trim()) {
+      fullText += slideText + "\n";
+    }
   }
 
   return fullText;
 };
 
-/* =========================================================
-   MAIN COMPONENT
-========================================================= */
-
 function App() {
-  const [theme, setTheme] = useState(() => localStorage.getItem("docubrief_theme") || "dark");
-  const [activeTab, setActiveTab] = useState("upload"); // 'upload' | 'text'
-  const [engine, setEngine] = useState("client"); // 'client' | 'ai'
+  const [theme, setTheme] = useState(
+    () =>
+      localStorage.getItem("docubrief_theme") ||
+      "dark"
+  );
+
+  const [activeTab, setActiveTab] =
+    useState("upload");
+
+  const [engine, setEngine] =
+    useState("client");
+
   const [file, setFile] = useState(null);
   const [inputText, setInputText] = useState("");
-  const [summaryLength, setSummaryLength] = useState("medium"); // 'short' | 'medium' | 'long'
-  const [summaryTone, setSummaryTone] = useState("standard"); // 'standard' | 'bullet'
+
+  const [summaryLength, setSummaryLength] =
+    useState("medium");
+
+  const [summaryTone, setSummaryTone] =
+    useState("standard");
 
   const [summary, setSummary] = useState("");
   const [keyPoints, setKeyPoints] = useState([]);
   const [keywords, setKeywords] = useState([]);
-  const [improvements, setImprovements] = useState([]);
-  const [rawExtractedText, setRawExtractedText] = useState("");
-  const [showRawModal, setShowRawModal] = useState(false);
+  const [improvements, setImprovements] =
+    useState([]);
 
-  const [isDragging, setIsDragging] = useState(false);
+  const [rawExtractedText, setRawExtractedText] =
+    useState("");
+
+  const [showRawModal, setShowRawModal] =
+    useState(false);
+
+  const [isDragging, setIsDragging] =
+    useState(false);
+
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
 
   const [metrics, setMetrics] = useState(null);
+
   const [toasts, setToasts] = useState([]);
+
   const [history, setHistory] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("docubrief_history") || "[]");
+      return JSON.parse(
+        localStorage.getItem(
+          "docubrief_history"
+        ) || "[]"
+      );
     } catch {
       return [];
     }
   });
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
-  /* Audio State */
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [speechRate, setSpeechRate] = useState(1);
-  const synthRef = useRef(window.speechSynthesis || null);
+  const [showHistoryModal, setShowHistoryModal] =
+    useState(false);
+
+  const [isPlayingAudio, setIsPlayingAudio] =
+    useState(false);
+
+  const [speechRate, setSpeechRate] =
+    useState(1);
+
+  const synthRef = useRef(
+    window.speechSynthesis || null
+  );
+
   const utteranceRef = useRef(null);
 
-  /* Sync Theme */
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("docubrief_theme", theme);
+    document.documentElement.setAttribute(
+      "data-theme",
+      theme
+    );
+
+    localStorage.setItem(
+      "docubrief_theme",
+      theme
+    );
   }, [theme]);
 
-  /* Persist History */
   useEffect(() => {
     try {
-      localStorage.setItem("docubrief_history", JSON.stringify(history.slice(0, 15)));
+      localStorage.setItem(
+        "docubrief_history",
+        JSON.stringify(history.slice(0, 15))
+      );
     } catch (e) {
       console.error(e);
     }
   }, [history]);
 
-  /* Toast Notification Dispatcher */
-  const showToast = (message, type = "success") => {
+  const showToast = (
+    message,
+    type = "success"
+  ) => {
     const id = Date.now();
-    setToasts((prev) => [...prev, { id, message, type }]);
+
+    setToasts((prev) => [
+      ...prev,
+      {
+        id,
+        message,
+        type
+      }
+    ]);
+
     setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+      setToasts((prev) =>
+        prev.filter((t) => t.id !== id)
+      );
     }, 3200);
   };
 
-  /* Toggle Dark / Light Theme */
   const toggleTheme = () => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+    setTheme((prev) =>
+      prev === "dark" ? "light" : "dark"
+    );
   };
 
-  /* File Selection Handler */
   const handleFile = (selectedFile) => {
     if (!selectedFile) return;
-    const ext = selectedFile.name.split(".").pop().toLowerCase();
-    const allowed = ["pdf", "png", "jpg", "jpeg", "webp", "docx", "pptx", "txt", "md"];
+
+    const ext = selectedFile.name
+      .split(".")
+      .pop()
+      .toLowerCase();
+
+    const allowed = [
+      "pdf",
+      "png",
+      "jpg",
+      "jpeg",
+      "webp",
+      "docx",
+      "pptx",
+      "txt",
+      "md"
+    ];
 
     if (!allowed.includes(ext)) {
-      setError("Unsupported format. Please upload PDF, PNG, JPG, WEBP, DOCX, PPTX, or TXT.");
-      showToast("Unsupported file format", "error");
+      setError(
+        "Unsupported format. Please upload PDF, PNG, JPG, WEBP, DOCX, PPTX, or TXT."
+      );
+
+      showToast(
+        "Unsupported file format",
+        "error"
+      );
+
       return;
     }
 
     setFile(selectedFile);
     setError("");
     setProgress("");
-    showToast(`Loaded ${selectedFile.name}`);
+
+    showToast(
+      `Loaded ${selectedFile.name}`
+    );
   };
 
-  /* Calculate Reading Metrics */
-  const computeMetrics = (originalText, summaryText) => {
-    const origWords = originalText.trim().split(/\s+/).filter(Boolean).length;
-    const summWords = summaryText.trim().split(/\s+/).filter(Boolean).length;
-    const reductionPercent = origWords > 0 ? Math.max(0, Math.round(((origWords - summWords) / origWords) * 100)) : 0;
-    const originalReadMinutes = (origWords / 200).toFixed(1);
-    const summaryReadMinutes = (summWords / 200).toFixed(1);
-    const timeSavedMinutes = Math.max(0, (originalReadMinutes - summaryReadMinutes)).toFixed(1);
+  const computeMetrics = (
+    originalText,
+    summaryText
+  ) => {
+    const origWords = originalText
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+
+    const summWords = summaryText
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+
+    const reductionPercent =
+      origWords > 0
+        ? Math.max(
+          0,
+          Math.round(
+            ((origWords - summWords) /
+              origWords) *
+            100
+          )
+        )
+        : 0;
+
+    const originalReadMinutes = (
+      origWords / 200
+    ).toFixed(1);
+
+    const summaryReadMinutes = (
+      summWords / 200
+    ).toFixed(1);
+
+    const timeSavedMinutes = Math.max(
+      0,
+      originalReadMinutes -
+      summaryReadMinutes
+    ).toFixed(1);
 
     return {
       originalWords: origWords,
       summaryWords: summWords,
       reductionPercent,
-      timeSavedMinutes: timeSavedMinutes > 0 ? `${timeSavedMinutes} mins` : "< 1 min"
+      timeSavedMinutes:
+        timeSavedMinutes > 0
+          ? `${timeSavedMinutes} mins`
+          : "< 1 min"
     };
   };
 
-  /* Main Generate Summary Function */
   const handleGenerate = async () => {
     let sourceText = "";
+
     setError("");
     setProgress("");
 
     if (activeTab === "upload") {
       if (!file) {
-        setError("Please upload a document to analyze.");
+        setError(
+          "Please upload a document to analyze."
+        );
         return;
       }
     } else {
       if (!inputText.trim()) {
-        setError("Please enter or paste document text.");
+        setError(
+          "Please enter or paste document text."
+        );
         return;
       }
+
       sourceText = inputText;
     }
 
@@ -577,126 +841,310 @@ function App() {
 
     try {
       if (activeTab === "upload") {
-        const ext = file.name.split(".").pop().toLowerCase();
+        const ext = file.name
+          .split(".")
+          .pop()
+          .toLowerCase();
 
         if (ext === "pdf") {
-          const result = await extractTextFromPDF(file, setProgress);
+          const result =
+            await extractTextFromPDF(
+              file,
+              setProgress
+            );
+
           sourceText = result.text;
-          const cleanedPreview = cleanExtractedText(sourceText);
-          if (cleanedPreview.replace(/\s/g, "").length < 60) {
-            setProgress("Scanned PDF detected. Running OCR image recognition...");
-            sourceText = await ocrScannedPDF(result.pdf, setProgress);
+
+          const cleanedPreview =
+            cleanExtractedText(
+              sourceText
+            );
+
+          if (
+            cleanedPreview.replace(
+              /\s/g,
+              ""
+            ).length < 60
+          ) {
+            setProgress(
+              "Scanned PDF detected. Running OCR image recognition..."
+            );
+
+            sourceText =
+              await ocrScannedPDF(
+                result.pdf,
+                setProgress
+              );
           }
-        } else if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
-          sourceText = await extractTextFromImage(file, setProgress);
+        } else if (
+          [
+            "png",
+            "jpg",
+            "jpeg",
+            "webp"
+          ].includes(ext)
+        ) {
+          sourceText =
+            await extractTextFromImage(
+              file,
+              setProgress
+            );
         } else if (ext === "docx") {
-          sourceText = await extractTextFromWord(file, setProgress);
+          sourceText =
+            await extractTextFromWord(
+              file,
+              setProgress
+            );
         } else if (ext === "pptx") {
-          sourceText = await extractTextFromPowerPoint(file, setProgress);
-        } else if (["txt", "md"].includes(ext)) {
-          sourceText = await file.text();
+          sourceText =
+            await extractTextFromPowerPoint(
+              file,
+              setProgress
+            );
+        } else if (
+          ["txt", "md"].includes(ext)
+        ) {
+          sourceText =
+            await file.text();
         }
       }
 
-      if (!sourceText || !sourceText.trim()) {
-        throw new Error("No readable text could be extracted from this source.");
+      if (
+        !sourceText ||
+        !sourceText.trim()
+      ) {
+        throw new Error(
+          "No readable text could be extracted from this source."
+        );
       }
 
       setRawExtractedText(sourceText);
-      setProgress("Analyzing semantics and distilling key insights...");
+
+      setProgress(
+        "Analyzing semantics and distilling key insights..."
+      );
 
       let finalSummary = "";
       let finalKeyPoints = [];
-      let finalKeywords = extractKeywords(sourceText, 6);
+
+      let finalKeywords =
+        extractKeywords(
+          sourceText,
+          6
+        );
 
       if (engine === "ai") {
-        setProgress("Connecting to AI Deep Summary Engine...");
+        setProgress(
+          "Connecting to AI Deep Summary Engine..."
+        );
+
         try {
-          const apiRes = await fetch("/api/summarize", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: sourceText.slice(0, 50000),
-              length: summaryLength,
-              tone: summaryTone
-            })
-          });
+          /*
+           * IMPORTANT:
+           * This now calls your deployed FastAPI backend
+           * instead of the old /api/summarize endpoint.
+           */
+          const apiRes = await fetch(
+            "https://document-summary-assistant-ekuy.onrender.com/api/summarize",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
+
+              body: JSON.stringify({
+                text: sourceText.slice(
+                  0,
+                  50000
+                ),
+                length: summaryLength
+              })
+            }
+          );
 
           if (apiRes.ok) {
-            const data = await apiRes.json();
-            finalSummary = data.summary;
-            finalKeyPoints = data.key_points || [];
+            const data =
+              await apiRes.json();
+
+            finalSummary =
+              data.summary;
+
+            finalKeyPoints =
+              data.key_points || [];
           } else {
-            console.warn("AI API unavailable, falling back to instant client engine");
-            showToast("AI server unavailable — used instant in-browser engine instead", "error");
-            const fallback = createInBrowserSummary(sourceText, summaryLength, summaryTone);
-            finalSummary = fallback.summary;
-            finalKeyPoints = fallback.keyPoints;
-            finalKeywords = fallback.keywords;
+            console.warn(
+              "AI API unavailable, falling back to instant client engine"
+            );
+
+            showToast(
+              "AI server unavailable — used instant in-browser engine instead",
+              "error"
+            );
+
+            const fallback =
+              createInBrowserSummary(
+                sourceText,
+                summaryLength,
+                summaryTone
+              );
+
+            finalSummary =
+              fallback.summary;
+
+            finalKeyPoints =
+              fallback.keyPoints;
+
+            finalKeywords =
+              fallback.keywords;
           }
         } catch (apiErr) {
-          console.warn("AI server error, fallback to client engine", apiErr);
-          const fallback = createInBrowserSummary(sourceText, summaryLength, summaryTone);
-          finalSummary = fallback.summary;
-          finalKeyPoints = fallback.keyPoints;
-          finalKeywords = fallback.keywords;
+          console.warn(
+            "AI server error, fallback to client engine",
+            apiErr
+          );
+
+          const fallback =
+            createInBrowserSummary(
+              sourceText,
+              summaryLength,
+              summaryTone
+            );
+
+          finalSummary =
+            fallback.summary;
+
+          finalKeyPoints =
+            fallback.keyPoints;
+
+          finalKeywords =
+            fallback.keywords;
         }
       } else {
-        const result = createInBrowserSummary(sourceText, summaryLength, summaryTone);
-        finalSummary = result.summary;
-        finalKeyPoints = result.keyPoints;
-        finalKeywords = result.keywords;
+        const result =
+          createInBrowserSummary(
+            sourceText,
+            summaryLength,
+            summaryTone
+          );
+
+        finalSummary =
+          result.summary;
+
+        finalKeyPoints =
+          result.keyPoints;
+
+        finalKeywords =
+          result.keywords;
       }
 
       if (!finalSummary) {
-        throw new Error("Unable to synthesize a meaningful summary from the text.");
+        throw new Error(
+          "Unable to synthesize a meaningful summary from the text."
+        );
       }
 
       setSummary(finalSummary);
       setKeyPoints(finalKeyPoints);
       setKeywords(finalKeywords);
 
-      /* Generate Improvement Suggestions */
-      const suggestions = generateImprovementSuggestions(finalKeyPoints, finalKeywords, sourceText);
-      setImprovements(suggestions);
+      const suggestions =
+        generateImprovementSuggestions(
+          finalKeyPoints,
+          finalKeywords,
+          sourceText
+        );
 
-      const computed = computeMetrics(sourceText, finalSummary);
+      setImprovements(
+        suggestions
+      );
+
+      const computed =
+        computeMetrics(
+          sourceText,
+          finalSummary
+        );
+
       setMetrics(computed);
 
-      /* Add to History */
       const historyItem = {
         id: Date.now(),
-        title: activeTab === "upload" ? file.name : "Pasted Text Analysis",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        summary: finalSummary,
-        keyPoints: finalKeyPoints,
-        metrics: computed,
-        keywords: finalKeywords
-      };
-      setHistory((prev) => [historyItem, ...prev.slice(0, 14)]);
 
-      showToast("Summary generated ✨");
+        title:
+          activeTab === "upload"
+            ? file.name
+            : "Pasted Text Analysis",
+
+        timestamp:
+          new Date().toLocaleTimeString(
+            [],
+            {
+              hour: "2-digit",
+              minute: "2-digit"
+            }
+          ),
+
+        summary: finalSummary,
+
+        keyPoints:
+          finalKeyPoints,
+
+        metrics: computed,
+
+        keywords:
+          finalKeywords
+      };
+
+      setHistory((prev) => [
+        historyItem,
+        ...prev.slice(0, 14)
+      ]);
+
+      showToast(
+        "Summary generated ✨"
+      );
     } catch (err) {
       console.error(err);
-      setError(err.message || "Failed to process the document.");
-      showToast("Error processing document", "error");
+
+      setError(
+        err.message ||
+        "Failed to process the document."
+      );
+
+      showToast(
+        "Error processing document",
+        "error"
+      );
     } finally {
       setLoading(false);
       setProgress("");
     }
   };
 
-  /* Copy to Clipboard */
-  const handleCopy = (textToCopy, label = "Summary") => {
+  const handleCopy = (
+    textToCopy,
+    label = "Summary"
+  ) => {
     if (!textToCopy) return;
-    navigator.clipboard.writeText(textToCopy);
-    showToast(`${label} copied to clipboard! 📋`);
+
+    navigator.clipboard.writeText(
+      textToCopy
+    );
+
+    showToast(
+      `${label} copied to clipboard! 📋`
+    );
   };
 
-  /* Export as TXT */
   const exportTXT = () => {
     if (!summary) return;
-    const docTitle = activeTab === "upload" ? file?.name || "Document" : "Text-Summary";
+
+    const docTitle =
+      activeTab === "upload"
+        ? file?.name || "Document"
+        : "Text-Summary";
+
     const content = `=====================================================
 DOCUMENT SUMMARY ASSISTANT • SUMMARY REPORT
 Document: ${docTitle}
@@ -710,27 +1158,55 @@ ${summary}
 
 KEY TAKEAWAYS:
 -----------------------------------------------------
-${keyPoints.map((pt, i) => `${i + 1}. ${pt}`).join("\n\n")}
+${keyPoints
+        .map(
+          (pt, i) =>
+            `${i + 1}. ${pt}`
+        )
+        .join("\n\n")}
 
 TOP TOPICS:
 -----------------------------------------------------
 ${keywords.join(", ")}
 `;
 
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const blob = new Blob(
+      [content],
+      {
+        type: "text/plain"
+      }
+    );
+
+    const url =
+      URL.createObjectURL(blob);
+
+    const a =
+      document.createElement("a");
+
     a.href = url;
-    a.download = `${docTitle.replace(/\.[^/.]+$/, "")}-summary.txt`;
+
+    a.download = `${docTitle.replace(
+      /\.[^/.]+$/,
+      ""
+    )}-summary.txt`;
+
     a.click();
+
     URL.revokeObjectURL(url);
-    showToast("Downloaded .txt report");
+
+    showToast(
+      "Downloaded .txt report"
+    );
   };
 
-  /* Export as Markdown */
   const exportMD = () => {
     if (!summary) return;
-    const docTitle = activeTab === "upload" ? file?.name || "Document" : "Text-Summary";
+
+    const docTitle =
+      activeTab === "upload"
+        ? file?.name || "Document"
+        : "Text-Summary";
+
     const content = `# Document Summary: ${docTitle}
 
 > **Generated with Document Summary Assistant** • ${new Date().toLocaleDateString()}
@@ -744,27 +1220,54 @@ ${summary}
 ---
 
 ## 🎯 Key Takeaways & Core Points
-${keyPoints.map((pt) => `- ${pt}`).join("\n")}
+${keyPoints
+        .map((pt) => `- ${pt}`)
+        .join("\n")}
 
 ---
 
 ### 🏷️ Topic Tags
-${keywords.map((k) => `\`${k}\``).join(" ")}
+${keywords
+        .map((k) => `\`${k}\``)
+        .join(" ")}
 `;
 
-    const blob = new Blob([content], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const blob = new Blob(
+      [content],
+      {
+        type: "text/markdown"
+      }
+    );
+
+    const url =
+      URL.createObjectURL(blob);
+
+    const a =
+      document.createElement("a");
+
     a.href = url;
-    a.download = `${docTitle.replace(/\.[^/.]+$/, "")}-summary.md`;
+
+    a.download = `${docTitle.replace(
+      /\.[^/.]+$/,
+      ""
+    )}-summary.md`;
+
     a.click();
+
     URL.revokeObjectURL(url);
-    showToast("Downloaded .md Markdown report");
+
+    showToast(
+      "Downloaded .md Markdown report"
+    );
   };
 
-  /* Text-to-Speech Audio */
   const toggleSpeech = () => {
-    if (!synthRef.current || !summary) return;
+    if (
+      !synthRef.current ||
+      !summary
+    ) {
+      return;
+    }
 
     if (isPlayingAudio) {
       synthRef.current.cancel();
@@ -773,228 +1276,479 @@ ${keywords.map((k) => `\`${k}\``).join(" ")}
     }
 
     synthRef.current.cancel();
-    const cleanSpeechText = summary.replace(/•/g, "").replace(/\n+/g, " ");
-    const utterance = new SpeechSynthesisUtterance(cleanSpeechText);
-    utterance.rate = speechRate;
+
+    const cleanSpeechText =
+      summary
+        .replace(/•/g, "")
+        .replace(/\n+/g, " ");
+
+    const utterance =
+      new SpeechSynthesisUtterance(
+        cleanSpeechText
+      );
+
+    utterance.rate =
+      speechRate;
+
     utterance.pitch = 1.0;
 
-    utterance.onend = () => setIsPlayingAudio(false);
-    utterance.onerror = () => setIsPlayingAudio(false);
+    utterance.onend = () =>
+      setIsPlayingAudio(false);
 
-    utteranceRef.current = utterance;
-    synthRef.current.speak(utterance);
+    utterance.onerror = () =>
+      setIsPlayingAudio(false);
+
+    utteranceRef.current =
+      utterance;
+
+    synthRef.current.speak(
+      utterance
+    );
+
     setIsPlayingAudio(true);
   };
 
-  const changeSpeechSpeed = (rate) => {
+  const changeSpeechSpeed = (
+    rate
+  ) => {
     setSpeechRate(rate);
-    if (isPlayingAudio && synthRef.current) {
+
+    if (
+      isPlayingAudio &&
+      synthRef.current
+    ) {
       synthRef.current.cancel();
+
       setIsPlayingAudio(false);
-      showToast(`Speech rate set to ${rate}x`);
+
+      showToast(
+        `Speech rate set to ${rate}x`
+      );
     }
   };
 
-  /* Load Preset Sample Text */
   const loadSample = (type) => {
     if (SAMPLE_DOCS[type]) {
-      setInputText(SAMPLE_DOCS[type]);
+      setInputText(
+        SAMPLE_DOCS[type]
+      );
+
       setActiveTab("text");
-      showToast(`Loaded ${type.toUpperCase()} sample`);
+
+      showToast(
+        `Loaded ${type.toUpperCase()} sample`
+      );
     }
   };
 
-  /* Restore from History */
-  const loadHistoryItem = (item) => {
+  const loadHistoryItem = (
+    item
+  ) => {
     setSummary(item.summary);
-    setKeyPoints(item.keyPoints || []);
-    setMetrics(item.metrics || null);
-    setKeywords(item.keywords || []);
-    setShowHistoryModal(false);
-    showToast(`Restored: ${item.title}`);
+    setKeyPoints(
+      item.keyPoints || []
+    );
+    setMetrics(
+      item.metrics || null
+    );
+    setKeywords(
+      item.keywords || []
+    );
+
+    setShowHistoryModal(
+      false
+    );
+
+    showToast(
+      `Restored: ${item.title}`
+    );
   };
 
-  const deleteHistoryItem = (e, id) => {
+  const deleteHistoryItem = (
+    e,
+    id
+  ) => {
     e.stopPropagation();
-    setHistory((prev) => prev.filter((item) => item.id !== id));
-    showToast("Item removed from history");
+
+    setHistory((prev) =>
+      prev.filter(
+        (item) => item.id !== id
+      )
+    );
+
+    showToast(
+      "Item removed from history"
+    );
   };
 
-  /* =========================================================
-     IMPROVEMENT SUGGESTIONS GENERATOR
-  ========================================================= */
-  const generateImprovementSuggestions = (points, tags, text) => {
+  const generateImprovementSuggestions = (
+    points,
+    tags,
+    text
+  ) => {
     const suggestions = [];
-    const wordCount = text.trim().split(/\s+/).length;
-    const sentenceCount = text.split(/[.!?]+/).filter(Boolean).length;
-    const avgWordsPerSentence = sentenceCount > 0 ? Math.round(wordCount / sentenceCount) : 0;
 
-    // Readability
-    if (avgWordsPerSentence > 25) {
-      suggestions.push("✂️ Sentences are quite long (avg " + avgWordsPerSentence + " words). Consider breaking them into shorter, clearer statements.");
+    const wordCount =
+      text
+        .trim()
+        .split(/\s+/).length;
+
+    const sentenceCount =
+      text
+        .split(/[.!?]+/)
+        .filter(Boolean)
+        .length;
+
+    const avgWordsPerSentence =
+      sentenceCount > 0
+        ? Math.round(
+          wordCount /
+          sentenceCount
+        )
+        : 0;
+
+    if (
+      avgWordsPerSentence > 25
+    ) {
+      suggestions.push(
+        "✂️ Sentences are quite long (avg " +
+        avgWordsPerSentence +
+        " words). Consider breaking them into shorter, clearer statements."
+      );
     }
+
     if (wordCount > 3000) {
-      suggestions.push("📋 The document is lengthy. Adding an executive summary or table of contents at the top would improve navigation.");
+      suggestions.push(
+        "📋 The document is lengthy. Adding an executive summary or table of contents at the top would improve navigation."
+      );
     }
-    // Structure
+
     if (points.length <= 2) {
-      suggestions.push("📌 Only a few key points were found. Adding clear headings and distinct sections can improve overall structure.");
+      suggestions.push(
+        "📌 Only a few key points were found. Adding clear headings and distinct sections can improve overall structure."
+      );
     }
+
     if (points.length >= 8) {
-      suggestions.push("🗂️ Many key points detected. Grouping related points under themed sub-sections can improve clarity.");
+      suggestions.push(
+        "🗂️ Many key points detected. Grouping related points under themed sub-sections can improve clarity."
+      );
     }
-    // Content depth
+
     if (tags.length < 3) {
-      suggestions.push("🏷️ Limited topic coverage detected. Expanding on specific topics or adding data/examples will enrich the content.");
+      suggestions.push(
+        "🏷️ Limited topic coverage detected. Expanding on specific topics or adding data/examples will enrich the content."
+      );
     }
-    // Tone & specificity
-    const hasNumbers = /\b\d+(\.\d+)?(%|x|\+)?\b/.test(text);
+
+    const hasNumbers =
+      /\b\d+(\.\d+)?(%|x|\+)?\b/.test(
+        text
+      );
+
     if (!hasNumbers) {
-      suggestions.push("📊 No quantitative data found. Including metrics, statistics, or measurable outcomes strengthens credibility.");
+      suggestions.push(
+        "📊 No quantitative data found. Including metrics, statistics, or measurable outcomes strengthens credibility."
+      );
     }
-    // Passive voice hint
-    const passiveCount = (text.match(/\b(is|are|was|were|been|being)\s+\w+ed\b/gi) || []).length;
+
+    const passiveCount =
+      (
+        text.match(
+          /\b(is|are|was|were|been|being)\s+\w+ed\b/gi
+        ) || []
+      ).length;
+
     if (passiveCount > 5) {
-      suggestions.push("🖊️ Several passive voice constructions detected. Using active voice makes writing more direct and engaging.");
+      suggestions.push(
+        "🖊️ Several passive voice constructions detected. Using active voice makes writing more direct and engaging."
+      );
     }
-    // Conclusion
-    const hasConclusion = /\b(conclusion|summary|in summary|to summarize|finally|in conclusion)\b/i.test(text);
-    if (!hasConclusion && wordCount > 300) {
-      suggestions.push("🎯 No concluding section found. Adding a conclusion or key takeaway section gives readers a clear finish.");
+
+    const hasConclusion =
+      /\b(conclusion|summary|in summary|to summarize|finally|in conclusion)\b/i.test(
+        text
+      );
+
+    if (
+      !hasConclusion &&
+      wordCount > 300
+    ) {
+      suggestions.push(
+        "🎯 No concluding section found. Adding a conclusion or key takeaway section gives readers a clear finish."
+      );
     }
-    // Filler
-    if (suggestions.length === 0) {
-      suggestions.push("✅ The document is well-structured with clear points and good topic coverage.");
-      suggestions.push("💡 Consider adding visual aids (charts, diagrams) to complement the written content.");
+
+    if (
+      suggestions.length === 0
+    ) {
+      suggestions.push(
+        "✅ The document is well-structured with clear points and good topic coverage."
+      );
+
+      suggestions.push(
+        "💡 Consider adding visual aids (charts, diagrams) to complement the written content."
+      );
     }
+
     return suggestions.slice(0, 5);
   };
 
   return (
     <div className="app-wrapper">
-      {/* NAVIGATION BAR */}
       <nav className="navbar">
         <div className="navbar-container">
-          <div className="brand" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          <div
+            className="brand"
+            onClick={() =>
+              window.scrollTo({
+                top: 0,
+                behavior: "smooth"
+              })
+            }
+          >
             <div className="brand-icon-wrapper">
-              <span className="brand-icon">📄</span>
+              <span className="brand-icon">
+                📄
+              </span>
             </div>
+
             <div>
-              <span className="brand-title">Document Summary Assistant</span>
-              <span className="brand-badge" style={{ marginLeft: "8px" }}>AI</span>
+              <span className="brand-title">
+                Document Summary Assistant
+              </span>
+
+              <span
+                className="brand-badge"
+                style={{
+                  marginLeft: "8px"
+                }}
+              >
+                AI
+              </span>
             </div>
           </div>
 
           <div className="nav-actions">
             <button
               className="nav-btn"
-              onClick={() => setShowHistoryModal(true)}
+              onClick={() =>
+                setShowHistoryModal(
+                  true
+                )
+              }
               title="Recent Summaries"
             >
-              🕒 History {history.length > 0 && <span className="nav-badge-count">{history.length}</span>}
+              🕒 History{" "}
+              {history.length > 0 && (
+                <span className="nav-badge-count">
+                  {history.length}
+                </span>
+              )}
             </button>
 
             <button
               className="theme-toggle-btn"
               onClick={toggleTheme}
-              title={`Switch to ${theme === "dark" ? "Light" : "Dark"} Mode`}
+              title={`Switch to ${theme === "dark"
+                  ? "Light"
+                  : "Dark"
+                } Mode`}
             >
-              {theme === "dark" ? "☀️" : "🌙"}
+              {theme === "dark"
+                ? "☀️"
+                : "🌙"}
             </button>
           </div>
         </div>
       </nav>
 
-      {/* HERO BANNER */}
       <header className="hero-section">
         <div className="hero-pill">
           <span className="hero-pill-dot"></span>
-          Intelligent Document & Text Summarizer
+          Intelligent Document & Text
+          Summarizer
         </div>
 
         <h1 className="hero-title">
-          <span className="hero-highlight">Document Summary Assistant</span>
+          <span className="hero-highlight">
+            Document Summary Assistant
+          </span>
         </h1>
 
         <p className="hero-subtitle">
-          Upload a document or paste text to get an instant summary, key points, topic tags, and improvement suggestions.
+          Upload a document or paste text
+          to get an instant summary, key
+          points, topic tags, and
+          improvement suggestions.
         </p>
 
         <div className="supported-tags">
-          <span className="tag-badge">📄 PDF (Scanned & Text)</span>
-          <span className="tag-badge">📝 Word DOCX</span>
-          <span className="tag-badge">📊 PowerPoint PPTX</span>
-          <span className="tag-badge">🖼️ PNG / JPG OCR</span>
-          <span className="tag-badge">✍️ Direct Text Paste</span>
+          <span className="tag-badge">
+            📄 PDF (Scanned & Text)
+          </span>
+
+          <span className="tag-badge">
+            📝 Word DOCX
+          </span>
+
+          <span className="tag-badge">
+            📊 PowerPoint PPTX
+          </span>
+
+          <span className="tag-badge">
+            🖼️ PNG / JPG OCR
+          </span>
+
+          <span className="tag-badge">
+            ✍️ Direct Text Paste
+          </span>
         </div>
       </header>
 
-      {/* MAIN CONTAINER */}
       <main className="main-content">
         <div className="grid-workspace">
-          {/* INPUT CARD */}
           <section className="glass-card">
-            {/* INPUT TABS */}
             <div className="tab-nav">
               <button
-                className={`tab-btn ${activeTab === "upload" ? "active" : ""}`}
-                onClick={() => setActiveTab("upload")}
+                className={`tab-btn ${activeTab === "upload"
+                    ? "active"
+                    : ""
+                  }`}
+                onClick={() =>
+                  setActiveTab(
+                    "upload"
+                  )
+                }
               >
                 📁 Upload Document
               </button>
+
               <button
-                className={`tab-btn ${activeTab === "text" ? "active" : ""}`}
-                onClick={() => setActiveTab("text")}
+                className={`tab-btn ${activeTab === "text"
+                    ? "active"
+                    : ""
+                  }`}
+                onClick={() =>
+                  setActiveTab("text")
+                }
               >
                 ✍️ Paste Text / Samples
               </button>
             </div>
 
-            {/* TAB 1: FILE UPLOAD */}
             {activeTab === "upload" && (
               <div>
                 {!file ? (
                   <div
-                    className={`dropzone ${isDragging ? "drag-active" : ""}`}
+                    className={`dropzone ${isDragging
+                        ? "drag-active"
+                        : ""
+                      }`}
                     onDragOver={(e) => {
                       e.preventDefault();
-                      setIsDragging(true);
+                      setIsDragging(
+                        true
+                      );
                     }}
-                    onDragLeave={() => setIsDragging(false)}
+                    onDragLeave={() =>
+                      setIsDragging(
+                        false
+                      )
+                    }
                     onDrop={(e) => {
                       e.preventDefault();
-                      setIsDragging(false);
-                      handleFile(e.dataTransfer.files[0]);
+                      setIsDragging(
+                        false
+                      );
+
+                      handleFile(
+                        e.dataTransfer
+                          .files[0]
+                      );
                     }}
                   >
-                    <div className="dropzone-icon-box">📂</div>
-                    <h3 className="dropzone-title">Drag & drop your file here</h3>
-                    <p className="dropzone-desc">Supports PDF, DOCX, PPTX, PNG, JPG, WEBP, and TXT files</p>
+                    <div className="dropzone-icon-box">
+                      📂
+                    </div>
+
+                    <h3 className="dropzone-title">
+                      Drag & drop your
+                      file here
+                    </h3>
+
+                    <p className="dropzone-desc">
+                      Supports PDF, DOCX,
+                      PPTX, PNG, JPG,
+                      WEBP, and TXT files
+                    </p>
 
                     <label className="browse-button">
                       Browse Files
+
                       <input
                         type="file"
-                        style={{ display: "none" }}
+                        style={{
+                          display: "none"
+                        }}
                         accept=".pdf,.docx,.pptx,.png,.jpg,.jpeg,.webp,.txt,.md"
-                        onChange={(e) => handleFile(e.target.files[0])}
+                        onChange={(e) =>
+                          handleFile(
+                            e.target
+                              .files[0]
+                          )
+                        }
                       />
                     </label>
 
-                    <div className="dropzone-formats">PDF • DOCX • PPTX • PNG • JPG • WEBP • TXT</div>
+                    <div className="dropzone-formats">
+                      PDF • DOCX • PPTX •
+                      PNG • JPG • WEBP •
+                      TXT
+                    </div>
                   </div>
                 ) : (
                   <div className="file-preview-card">
                     <div className="file-preview-info">
                       <div className="file-type-icon">
-                        {file.name.endsWith(".pdf") ? "📕" : file.name.endsWith(".docx") ? "📘" : file.name.endsWith(".pptx") ? "📙" : "🖼️"}
+                        {file.name.endsWith(
+                          ".pdf"
+                        )
+                          ? "📕"
+                          : file.name.endsWith(
+                            ".docx"
+                          )
+                            ? "📘"
+                            : file.name.endsWith(
+                              ".pptx"
+                            )
+                              ? "📙"
+                              : "🖼️"}
                       </div>
+
                       <div className="file-preview-meta">
-                        <strong>{file.name}</strong>
-                        <span>{(file.size / 1024 / 1024).toFixed(2)} MB • Ready to analyze</span>
+                        <strong>
+                          {file.name}
+                        </strong>
+
+                        <span>
+                          {(
+                            file.size /
+                            1024 /
+                            1024
+                          ).toFixed(2)}{" "}
+                          MB • Ready to
+                          analyze
+                        </span>
                       </div>
                     </div>
-                    <button className="remove-file-btn" onClick={() => setFile(null)}>
+
+                    <button
+                      className="remove-file-btn"
+                      onClick={() =>
+                        setFile(null)
+                      }
+                    >
                       ✕ Remove
                     </button>
                   </div>
@@ -1002,29 +1756,76 @@ ${keywords.map((k) => `\`${k}\``).join(" ")}
               </div>
             )}
 
-            {/* TAB 2: TEXTAREA / PRESETS */}
             {activeTab === "text" && (
               <div className="text-input-wrapper">
                 <div className="text-sample-bar">
-                  <span className="sample-label">Try instant samples:</span>
-                  <button className="sample-pill" onClick={() => loadSample("ai")}>🤖 AI & Tech</button>
-                  <button className="sample-pill" onClick={() => loadSample("business")}>📈 Business Strategy</button>
-                  <button className="sample-pill" onClick={() => loadSample("science")}>🔬 Materials Science</button>
+                  <span className="sample-label">
+                    Try instant samples:
+                  </span>
+
+                  <button
+                    className="sample-pill"
+                    onClick={() =>
+                      loadSample("ai")
+                    }
+                  >
+                    🤖 AI & Tech
+                  </button>
+
+                  <button
+                    className="sample-pill"
+                    onClick={() =>
+                      loadSample(
+                        "business"
+                      )
+                    }
+                  >
+                    📈 Business Strategy
+                  </button>
+
+                  <button
+                    className="sample-pill"
+                    onClick={() =>
+                      loadSample(
+                        "science"
+                      )
+                    }
+                  >
+                    🔬 Materials Science
+                  </button>
                 </div>
 
                 <textarea
                   className="textarea-box"
                   placeholder="Paste or type raw article, research paper, meeting notes, or book excerpt here..."
                   value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
+                  onChange={(e) =>
+                    setInputText(
+                      e.target.value
+                    )
+                  }
                 />
 
                 <div className="textarea-footer">
                   <span>
-                    {inputText.trim().split(/\s+/).filter(Boolean).length} words • {inputText.length} chars
+                    {
+                      inputText
+                        .trim()
+                        .split(/\s+/)
+                        .filter(Boolean)
+                        .length
+                    }{" "}
+                    words •{" "}
+                    {inputText.length} chars
                   </span>
+
                   {inputText && (
-                    <button className="clear-text-btn" onClick={() => setInputText("")}>
+                    <button
+                      className="clear-text-btn"
+                      onClick={() =>
+                        setInputText("")
+                      }
+                    >
                       Clear Text
                     </button>
                   )}
@@ -1032,116 +1833,252 @@ ${keywords.map((k) => `\`${k}\``).join(" ")}
               </div>
             )}
 
-            {/* CONTROLS & OPTIONS */}
             <div className="controls-grid">
-              {/* LENGTH */}
               <div>
-                <div className="control-group-title">🎯 Summary Length</div>
+                <div className="control-group-title">
+                  🎯 Summary Length
+                </div>
+
                 <div className="length-selector">
                   {[
-                    { id: "short", name: "Short", desc: "Crisp TL;DR" },
-                    { id: "medium", name: "Medium", desc: "Balanced core" },
-                    { id: "long", name: "In-Depth", desc: "Full breakdown" }
+                    {
+                      id: "short",
+                      name: "Short",
+                      desc: "Crisp TL;DR"
+                    },
+                    {
+                      id: "medium",
+                      name: "Medium",
+                      desc: "Balanced core"
+                    },
+                    {
+                      id: "long",
+                      name: "In-Depth",
+                      desc: "Full breakdown"
+                    }
                   ].map((opt) => (
                     <div
                       key={opt.id}
-                      className={`length-option-card ${summaryLength === opt.id ? "active" : ""}`}
-                      onClick={() => setSummaryLength(opt.id)}
+                      className={`length-option-card ${summaryLength ===
+                          opt.id
+                          ? "active"
+                          : ""
+                        }`}
+                      onClick={() =>
+                        setSummaryLength(
+                          opt.id
+                        )
+                      }
                     >
-                      <strong className="length-name">{opt.name}</strong>
-                      <span className="length-desc">{opt.desc}</span>
+                      <strong className="length-name">
+                        {opt.name}
+                      </strong>
+
+                      <span className="length-desc">
+                        {opt.desc}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* ENGINE & FORMAT */}
               <div>
-                <div className="control-group-title">⚙️ Engine & Format</div>
+                <div className="control-group-title">
+                  ⚙️ Engine & Format
+                </div>
+
                 <div className="option-select-row">
                   <div
-                    className={`engine-chip ${engine === "client" ? "active" : ""}`}
-                    onClick={() => setEngine("client")}
+                    className={`engine-chip ${engine === "client"
+                        ? "active"
+                        : ""
+                      }`}
+                    onClick={() =>
+                      setEngine("client")
+                    }
                   >
-                    <strong>⚡ In-Browser Fast</strong>
-                    <span>100% Private & Instant</span>
+                    <strong>
+                      ⚡ In-Browser Fast
+                    </strong>
+
+                    <span>
+                      100% Private & Instant
+                    </span>
                   </div>
+
                   <div
-                    className={`engine-chip ${engine === "ai" ? "active" : ""}`}
-                    onClick={() => setEngine("ai")}
+                    className={`engine-chip ${engine === "ai"
+                        ? "active"
+                        : ""
+                      }`}
+                    onClick={() =>
+                      setEngine("ai")
+                    }
                   >
-                    <strong>🤖 AI Deep Mode</strong>
-                    <span>Cloud AI Synthesis</span>
+                    <strong>
+                      🤖 AI Deep Mode
+                    </strong>
+
+                    <span>
+                      Cloud AI Synthesis
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* PROGRESS & ERRORS */}
             {loading && progress && (
               <div className="progress-card">
                 <div className="progress-spinner"></div>
-                <div className="progress-text">{progress}</div>
+
+                <div className="progress-text">
+                  {progress}
+                </div>
               </div>
             )}
 
-            {error && <div className="error-banner">⚠️ {error}</div>}
+            {error && (
+              <div className="error-banner">
+                ⚠️ {error}
+              </div>
+            )}
 
-            {/* ACTION BUTTON */}
             <div className="action-bar">
               <button
                 className="btn-generate"
-                onClick={handleGenerate}
-                disabled={loading || (activeTab === "upload" && !file) || (activeTab === "text" && !inputText.trim())}
+                onClick={
+                  handleGenerate
+                }
+                disabled={
+                  loading ||
+                  (activeTab ===
+                    "upload" &&
+                    !file) ||
+                  (activeTab ===
+                    "text" &&
+                    !inputText.trim())
+                }
               >
-                {loading ? "⏳ Processing & Analyzing..." : "✨ Generate Summary & Insights"}
+                {loading
+                  ? "⏳ Processing & Analyzing..."
+                  : "✨ Generate Summary & Insights"}
               </button>
             </div>
           </section>
 
-          {/* RESULTS SECTION */}
           {summary && (
             <div className="results-section">
-              {/* METRICS DASHBOARD */}
               {metrics && (
                 <div className="metrics-row">
                   <div className="metric-chip">
-                    <span className="metric-label">Original Length</span>
-                    <span className="metric-value">{metrics.originalWords}</span>
-                    <span className="metric-sub">Words in document</span>
-                  </div>
-                  <div className="metric-chip">
-                    <span className="metric-label">Summary Length</span>
-                    <span className="metric-value">{metrics.summaryWords}</span>
-                    <span className="metric-sub">Words distilled</span>
-                  </div>
-                  <div className="metric-chip">
-                    <span className="metric-label">Reduction</span>
-                    <span className="metric-value" style={{ color: "var(--accent-cyan)" }}>
-                      {metrics.reductionPercent}%
+                    <span className="metric-label">
+                      Original Length
                     </span>
-                    <span className="metric-sub">Compression ratio</span>
-                  </div>
-                  <div className="metric-chip">
-                    <span className="metric-label">Reading Time Saved</span>
-                    <span className="metric-value" style={{ color: "var(--accent-emerald)" }}>
-                      {metrics.timeSavedMinutes}
+
+                    <span className="metric-value">
+                      {
+                        metrics.originalWords
+                      }
                     </span>
-                    <span className="metric-sub">Estimated time saved</span>
+
+                    <span className="metric-sub">
+                      Words in document
+                    </span>
+                  </div>
+
+                  <div className="metric-chip">
+                    <span className="metric-label">
+                      Summary Length
+                    </span>
+
+                    <span className="metric-value">
+                      {
+                        metrics.summaryWords
+                      }
+                    </span>
+
+                    <span className="metric-sub">
+                      Words distilled
+                    </span>
+                  </div>
+
+                  <div className="metric-chip">
+                    <span className="metric-label">
+                      Reduction
+                    </span>
+
+                    <span
+                      className="metric-value"
+                      style={{
+                        color:
+                          "var(--accent-cyan)"
+                      }}
+                    >
+                      {
+                        metrics.reductionPercent
+                      }
+                      %
+                    </span>
+
+                    <span className="metric-sub">
+                      Compression ratio
+                    </span>
+                  </div>
+
+                  <div className="metric-chip">
+                    <span className="metric-label">
+                      Reading Time
+                      Saved
+                    </span>
+
+                    <span
+                      className="metric-value"
+                      style={{
+                        color:
+                          "var(--accent-emerald)"
+                      }}
+                    >
+                      {
+                        metrics.timeSavedMinutes
+                      }
+                    </span>
+
+                    <span className="metric-sub">
+                      Estimated time
+                      saved
+                    </span>
                   </div>
                 </div>
               )}
 
-              {/* AUDIO PLAYER BAR */}
               <div className="audio-player-card">
                 <div className="audio-left">
-                  <button className="btn-audio-play" onClick={toggleSpeech} title="Listen to Summary">
-                    {isPlayingAudio ? "⏸" : "🔊"}
+                  <button
+                    className="btn-audio-play"
+                    onClick={
+                      toggleSpeech
+                    }
+                    title="Listen to Summary"
+                  >
+                    {isPlayingAudio
+                      ? "⏸"
+                      : "🔊"}
                   </button>
+
                   <div className="audio-status-group">
-                    <strong>{isPlayingAudio ? "Playing Audio Narration..." : "Text-to-Speech Player"}</strong>
-                    <span>{isPlayingAudio ? "Click to pause speech" : "Listen to this summary aloud"}</span>
+                    <strong>
+                      {isPlayingAudio
+                        ? "Playing Audio Narration..."
+                        : "Text-to-Speech Player"}
+                    </strong>
+
+                    <span>
+                      {isPlayingAudio
+                        ? "Click to pause speech"
+                        : "Listen to this summary aloud"}
+                    </span>
                   </div>
+
                   {isPlayingAudio && (
                     <div className="audio-wave">
                       <div className="audio-bar"></div>
@@ -1154,131 +2091,291 @@ ${keywords.map((k) => `\`${k}\``).join(" ")}
                 </div>
 
                 <div className="audio-speed-group">
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>SPEED:</span>
-                  {[0.75, 1, 1.25, 1.5].map((speed) => (
-                    <button
-                      key={speed}
-                      className={`speed-chip ${speechRate === speed ? "active" : ""}`}
-                      onClick={() => changeSpeechSpeed(speed)}
-                    >
-                      {speed}x
-                    </button>
-                  ))}
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color:
+                        "var(--text-muted)",
+                      fontWeight: "600"
+                    }}
+                  >
+                    SPEED:
+                  </span>
+
+                  {[0.75, 1, 1.25, 1.5].map(
+                    (speed) => (
+                      <button
+                        key={speed}
+                        className={`speed-chip ${speechRate ===
+                            speed
+                            ? "active"
+                            : ""
+                          }`}
+                        onClick={() =>
+                          changeSpeechSpeed(
+                            speed
+                          )
+                        }
+                      >
+                        {speed}x
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
 
-              {/* SUMMARY CARD */}
               <section className="glass-card">
                 <div className="card-header-row">
                   <div className="card-title-group">
-                    <span className="card-icon">📌</span>
+                    <span className="card-icon">
+                      📌
+                    </span>
+
                     <div>
-                      <h2 className="card-title">Executive Summary</h2>
-                      <span className="card-subtitle">Synthesized overview and context</span>
+                      <h2 className="card-title">
+                        Executive Summary
+                      </h2>
+
+                      <span className="card-subtitle">
+                        Synthesized overview
+                        and context
+                      </span>
                     </div>
                   </div>
 
                   <div className="result-toolbar">
                     <div className="result-btn-group">
-                      <button className="action-btn" onClick={() => handleCopy(summary, "Summary")}>
+                      <button
+                        className="action-btn"
+                        onClick={() =>
+                          handleCopy(
+                            summary,
+                            "Summary"
+                          )
+                        }
+                      >
                         📋 Copy
                       </button>
-                      <button className="action-btn" onClick={exportTXT}>
+
+                      <button
+                        className="action-btn"
+                        onClick={
+                          exportTXT
+                        }
+                      >
                         ⬇ .txt
                       </button>
-                      <button className="action-btn" onClick={exportMD}>
+
+                      <button
+                        className="action-btn"
+                        onClick={
+                          exportMD
+                        }
+                      >
                         📝 .md
                       </button>
-                      <button className="action-btn" onClick={() => window.print()}>
+
+                      <button
+                        className="action-btn"
+                        onClick={() =>
+                          window.print()
+                        }
+                      >
                         🖨️ Print
                       </button>
+
                       {rawExtractedText && (
-                        <button className="action-btn" onClick={() => setShowRawModal(!showRawModal)}>
-                          🔍 {showRawModal ? "Hide Raw" : "View Raw"}
+                        <button
+                          className="action-btn"
+                          onClick={() =>
+                            setShowRawModal(
+                              !showRawModal
+                            )
+                          }
+                        >
+                          🔍{" "}
+                          {showRawModal
+                            ? "Hide Raw"
+                            : "View Raw"}
                         </button>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="summary-body">{summary}</div>
+                <div className="summary-body">
+                  {summary}
+                </div>
 
-                {/* KEYWORD TOPIC TAGS */}
                 {keywords.length > 0 && (
                   <div className="topics-row">
-                    <span className="topic-label">Key Topics:</span>
-                    {keywords.map((tag, i) => (
-                      <span key={i} className="topic-tag">#{tag}</span>
-                    ))}
+                    <span className="topic-label">
+                      Key Topics:
+                    </span>
+
+                    {keywords.map(
+                      (tag, i) => (
+                        <span
+                          key={i}
+                          className="topic-tag"
+                        >
+                          #{tag}
+                        </span>
+                      )
+                    )}
                   </div>
                 )}
 
-                {/* RAW EXTRACTED TEXT ACCORDION */}
-                {showRawModal && rawExtractedText && (
-                  <div className="raw-text-card">
-                    <strong style={{ fontSize: "13px", display: "block", marginBottom: "8px" }}>
-                      Extracted Text from Parser / OCR:
-                    </strong>
-                    <div className="raw-text-box">{rawExtractedText}</div>
-                  </div>
-                )}
+                {showRawModal &&
+                  rawExtractedText && (
+                    <div className="raw-text-card">
+                      <strong
+                        style={{
+                          fontSize:
+                            "13px",
+                          display:
+                            "block",
+                          marginBottom:
+                            "8px"
+                        }}
+                      >
+                        Extracted Text from
+                        Parser / OCR:
+                      </strong>
+
+                      <div className="raw-text-box">
+                        {
+                          rawExtractedText
+                        }
+                      </div>
+                    </div>
+                  )}
               </section>
 
-              {/* KEY POINTS CARD */}
               {keyPoints.length > 0 && (
                 <section className="glass-card">
                   <div className="card-header-row">
                     <div className="card-title-group">
-                      <span className="card-icon">🎯</span>
+                      <span className="card-icon">
+                        🎯
+                      </span>
+
                       <div>
-                        <h2 className="card-title">Key Takeaways</h2>
-                        <span className="card-subtitle">Critical facts, decisions, and conclusions</span>
+                        <h2 className="card-title">
+                          Key Takeaways
+                        </h2>
+
+                        <span className="card-subtitle">
+                          Critical facts,
+                          decisions, and
+                          conclusions
+                        </span>
                       </div>
                     </div>
+
                     <button
                       className="action-btn"
-                      onClick={() => handleCopy(keyPoints.map((pt, i) => `${i + 1}. ${pt}`).join("\n\n"), "Key Points")}
+                      onClick={() =>
+                        handleCopy(
+                          keyPoints
+                            .map(
+                              (
+                                pt,
+                                i
+                              ) =>
+                                `${i + 1
+                                }. ${pt}`
+                            )
+                            .join(
+                              "\n\n"
+                            ),
+                          "Key Points"
+                        )
+                      }
                     >
                       📋 Copy All Points
                     </button>
                   </div>
 
                   <div className="keypoints-list">
-                    {keyPoints.map((point, index) => (
-                      <div key={index} className="keypoint-item">
-                        <span className="keypoint-index">{index + 1}</span>
-                        <p className="keypoint-text">{point}</p>
-                        <button
-                          className="keypoint-copy"
-                          title="Copy this point"
-                          onClick={() => handleCopy(point, `Point ${index + 1}`)}
+                    {keyPoints.map(
+                      (
+                        point,
+                        index
+                      ) => (
+                        <div
+                          key={index}
+                          className="keypoint-item"
                         >
-                          📋
-                        </button>
-                      </div>
-                    ))}
+                          <span className="keypoint-index">
+                            {index + 1}
+                          </span>
+
+                          <p className="keypoint-text">
+                            {point}
+                          </p>
+
+                          <button
+                            className="keypoint-copy"
+                            title="Copy this point"
+                            onClick={() =>
+                              handleCopy(
+                                point,
+                                `Point ${index +
+                                1
+                                }`
+                              )
+                            }
+                          >
+                            📋
+                          </button>
+                        </div>
+                      )
+                    )}
                   </div>
                 </section>
               )}
 
-              {/* IMPROVEMENT SUGGESTIONS CARD */}
               {improvements.length > 0 && (
                 <section className="glass-card improvement-card">
                   <div className="card-header-row">
                     <div className="card-title-group">
-                      <span className="card-icon">💡</span>
+                      <span className="card-icon">
+                        💡
+                      </span>
+
                       <div>
-                        <h2 className="card-title">Improvement Suggestions</h2>
-                        <span className="card-subtitle">Ways to enhance this document</span>
+                        <h2 className="card-title">
+                          Improvement
+                          Suggestions
+                        </h2>
+
+                        <span className="card-subtitle">
+                          Ways to enhance
+                          this document
+                        </span>
                       </div>
                     </div>
                   </div>
+
                   <div className="improvements-list">
-                    {improvements.map((suggestion, index) => (
-                      <div key={index} className="improvement-item">
-                        <p className="improvement-text">{suggestion}</p>
-                      </div>
-                    ))}
+                    {improvements.map(
+                      (
+                        suggestion,
+                        index
+                      ) => (
+                        <div
+                          key={index}
+                          className="improvement-item"
+                        >
+                          <p className="improvement-text">
+                            {
+                              suggestion
+                            }
+                          </p>
+                        </div>
+                      )
+                    )}
                   </div>
                 </section>
               )}
@@ -1287,71 +2384,163 @@ ${keywords.map((k) => `\`${k}\``).join(" ")}
         </div>
       </main>
 
-
-      {/* HISTORY MODAL */}
       {showHistoryModal && (
-        <div className="modal-backdrop" onClick={() => setShowHistoryModal(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-backdrop"
+          onClick={() =>
+            setShowHistoryModal(
+              false
+            )
+          }
+        >
+          <div
+            className="modal-container"
+            onClick={(e) =>
+              e.stopPropagation()
+            }
+          >
             <div className="modal-header">
-              <h3 className="modal-title">🕒 Recent Summaries</h3>
-              <button className="modal-close-btn" onClick={() => setShowHistoryModal(false)}>✕</button>
+              <h3 className="modal-title">
+                🕒 Recent Summaries
+              </h3>
+
+              <button
+                className="modal-close-btn"
+                onClick={() =>
+                  setShowHistoryModal(
+                    false
+                  )
+                }
+              >
+                ✕
+              </button>
             </div>
 
             <div className="modal-body">
               {history.length === 0 ? (
-                <div className="empty-history">No past summaries yet. Generate a summary to save it here!</div>
+                <div className="empty-history">
+                  No past summaries yet.
+                  Generate a summary to
+                  save it here!
+                </div>
               ) : (
-                history.map((item) => (
-                  <div key={item.id} className="history-item" onClick={() => loadHistoryItem(item)}>
-                    <div className="history-item-meta">
-                      <strong>{item.title}</strong>
-                      <span>
-                        {item.timestamp} • {item.metrics?.reductionPercent || 0}% compression • {item.keyPoints?.length || 0} key points
-                      </span>
+                history.map(
+                  (item) => (
+                    <div
+                      key={item.id}
+                      className="history-item"
+                      onClick={() =>
+                        loadHistoryItem(
+                          item
+                        )
+                      }
+                    >
+                      <div className="history-item-meta">
+                        <strong>
+                          {item.title}
+                        </strong>
+
+                        <span>
+                          {
+                            item.timestamp
+                          }{" "}
+                          •{" "}
+                          {item.metrics
+                            ?.reductionPercent ||
+                            0}
+                          % compression •{" "}
+                          {item.keyPoints
+                            ?.length ||
+                            0}{" "}
+                          key points
+                        </span>
+                      </div>
+
+                      <div className="history-item-actions">
+                        <button
+                          className="history-delete-btn"
+                          title="Delete from history"
+                          onClick={(e) =>
+                            deleteHistoryItem(
+                              e,
+                              item.id
+                            )
+                          }
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     </div>
-                    <div className="history-item-actions">
-                      <button
-                        className="history-delete-btn"
-                        title="Delete from history"
-                        onClick={(e) => deleteHistoryItem(e, item.id)}
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                ))
+                  )
+                )
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* TOAST ALERTS */}
       <div className="toast-container">
         {toasts.map((toast) => (
-          <div key={toast.id} className={`toast ${toast.type}`}>
-            {toast.type === "success" ? "✅" : "⚠️"} {toast.message}
+          <div
+            key={toast.id}
+            className={`toast ${toast.type}`}
+          >
+            {toast.type ===
+              "success"
+              ? "✅"
+              : "⚠️"}{" "}
+            {toast.message}
           </div>
         ))}
       </div>
 
-      {/* FOOTER */}
       <footer className="app-footer">
         <div className="footer-inner">
-          <div className="footer-brand">Document Summary Assistant</div>
+          <div className="footer-brand">
+            Document Summary Assistant
+          </div>
+
           <p className="footer-developer">
-            Engineered with modern Web & NLP technologies by <strong>Lakshman Murthy</strong>
+            Engineered with modern Web &
+            NLP technologies by{" "}
+            <strong>
+              Lakshman Murthy
+            </strong>
           </p>
+
           <div className="footer-links">
-            <a href="mailto:lakshmanamurthy.kadapala@gmail.com" className="footer-link">
-              ✉️ lakshmanamurthy.kadapala@gmail.com
+            <a
+              href="mailto:lakshmanamurthy.kadapala@gmail.com"
+              className="footer-link"
+            >
+              ✉️
+              {" "}
+              lakshmanamurthy.kadapala@gmail.com
             </a>
-            <span style={{ color: "var(--border-card)" }}>•</span>
-            <a href="tel:+918179117439" className="footer-link">
+
+            <span
+              style={{
+                color:
+                  "var(--border-card)"
+              }}
+            >
+              •
+            </span>
+
+            <a
+              href="tel:+918179117439"
+              className="footer-link"
+            >
               📞 +91 8179117439
             </a>
           </div>
-          <div className="footer-copy">© 2026 Document Summary Assistant. Designed for speed, intelligence, and privacy.</div>
+
+          <div className="footer-copy">
+            © 2026 Document Summary
+            Assistant. Designed for
+            speed, intelligence, and
+            privacy.
+          </div>
         </div>
       </footer>
     </div>
