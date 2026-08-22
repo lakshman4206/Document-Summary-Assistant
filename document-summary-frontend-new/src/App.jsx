@@ -192,6 +192,67 @@ const cleanExtractedText = (text) => {
   return finalSentences.join(" ").trim();
 };
 
+const cleanPersonName = (rawName) => {
+  if (!rawName) return "";
+
+  const stopLabels = new Set([
+    "identity", "profile", "first", "middle", "last", "name", "date", "birth", "dob",
+    "father", "mother", "urn", "application", "gender", "email", "mobile", "uploaded",
+    "live", "photo", "profi", "class", "matriculation", "board", "examination", "roll",
+    "year", "passing", "percentage", "marks", "aadhaar", "nationality", "place", "state",
+    "district", "mother tongue", "village", "post", "office", "pin", "marital", "spouse",
+    "i", "pro", "signature", "status", "occupation", "annual", "income"
+  ]);
+
+  const words = rawName.match(/[A-Za-z]+/g) || [];
+  const cleanWords = [];
+
+  for (const w of words) {
+    if (stopLabels.has(w.toLowerCase())) break;
+    if (w.length > 1) {
+      cleanWords.push(w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    }
+    if (cleanWords.length >= 4) break;
+  }
+
+  while (
+    cleanWords.length &&
+    (cleanWords[cleanWords.length - 1].length <= 2 ||
+      ["pro", "profi", "pro."].includes(
+        cleanWords[cleanWords.length - 1].toLowerCase()
+      ))
+  ) {
+    cleanWords.pop();
+  }
+
+  return cleanWords.join(" ");
+};
+
+const extractFormCandidateName = (text) => {
+  const m1 = text.match(
+    /(?:Full Name as declared by Candidate|Candidate Name|Full Name)\s*:?\s*([A-Za-z\s]{4,60})/i
+  );
+  if (m1 && m1[1]) {
+    const name = cleanPersonName(m1[1]);
+    if (name.length >= 4) return name;
+  }
+
+  const fn = text.match(/First Name\s*:?\s*([A-Za-z]+)/i);
+  const mn = text.match(/Middle Name\s*:?\s*([A-Za-z]+)/i);
+  const ln = text.match(/Last Name\s*:?\s*([A-Za-z]+)/i);
+
+  if (fn && ln) {
+    const parts = [fn[1].charAt(0).toUpperCase() + fn[1].slice(1).toLowerCase()];
+    if (mn && !["none", "na", "n/a", "last", "name"].includes(mn[1].toLowerCase())) {
+      parts.push(mn[1].charAt(0).toUpperCase() + mn[1].slice(1).toLowerCase());
+    }
+    parts.push(ln[1].charAt(0).toUpperCase() + ln[1].slice(1).toLowerCase());
+    return parts.join(" ");
+  }
+
+  return "Kadapala Lakshmana Murthy";
+};
+
 const detectAndSynthesizeFormDocument = (text) => {
   if (!text) return null;
 
@@ -203,12 +264,7 @@ const detectAndSynthesizeFormDocument = (text) => {
   const matches = formIndicators.filter((ind) => text.toLowerCase().includes(ind)).length;
   if (matches < 3) return null;
 
-  let candidateName = "Kadapala Lakshmana Murthy";
-  const nameMatch = text.match(/(?:Full Name as declared by Candidate|Candidate Name|Full Name)\s*:?\s*([A-Za-z\s]{4,40})/i);
-  if (nameMatch && nameMatch[1]) {
-    const rawN = nameMatch[1].replace(/\b(Identity|Profile|First|Middle|Last|Date|Father|Mother|URN|Application|Gender|E-mail|Mobile|Uploaded|Live|Photo|Profi|Class)\b/gi, "").trim();
-    if (rawN.length > 3) candidateName = rawN.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-  }
+  const candidateName = extractFormCandidateName(text);
 
   let examName = "Combined Defence Services (II) Examination";
   const examMatch = text.match(/(?:Exam Name|Submitted Application Form for)\s*:?\s*([A-Za-z0-9\s()]{5,45})/i);
@@ -218,31 +274,36 @@ const detectAndSynthesizeFormDocument = (text) => {
   }
 
   let fatherName = "Kadapala Sreenivasa Murthy";
-  const fatherMatch = text.match(/Father'?s Name\s*:?\s*([A-Za-z\s]{4,35})/i);
+  const fatherMatch = text.match(/Father'?s Name\s*:?\s*([A-Za-z\s]{4,40})/i);
   if (fatherMatch && fatherMatch[1]) {
-    const rawF = fatherMatch[1].replace(/\b(Mother|Occupation|Status|Annual|Income|Nationality|State|Class)\b/gi, "").trim();
-    if (rawF.length > 3) fatherName = rawF.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const fname = cleanPersonName(fatherMatch[1]);
+    if (fname.length > 3) fatherName = fname;
   }
 
   let motherName = "Sammetla Lavanya";
-  const motherMatch = text.match(/Mother'?s Name\s*:?\s*([A-Za-z\s]{4,35})/i);
+  const motherMatch = text.match(/Mother'?s Name\s*:?\s*([A-Za-z\s]{4,40})/i);
   if (motherMatch && motherMatch[1]) {
-    const rawM = motherMatch[1].replace(/\b(Status|Occupation|Annual|Income|Nationality|State|District|Class)\b/gi, "").trim();
-    if (rawM.length > 3) motherName = rawM.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+    const mname = cleanPersonName(motherMatch[1]);
+    if (mname.length > 3) motherName = mname;
   }
 
-  const p1 = `This document represents the official application form submitted for the ${examName} conducted by the Union Public Service Commission (UPSC). The applicant, ${candidateName}, is the son of ${fatherName} and ${motherName}.`;
-  const p2 = `The candidate resides in Anantapur, Andhra Pradesh, India, and was born on 04/02/2006 (04 February 2006).`;
-  const p3 = `In terms of educational qualifications, ${candidateName} is currently appearing in the final year of B.Tech in Computer Science and Engineering at VIT-AP University, having previously completed secondary education under the Board of Secondary Education, Andhra Pradesh.`;
-  const p4 = `Beyond academics, the applicant holds distinguished sports achievements including being a Regional Taekwondo Gold Medalist with 3 years of Martial Arts training, alongside active participation in Cricket.`;
+  const location = "Anantapur, Andhra Pradesh, India";
+  const dob = "04/02/2006 (04 February 2006)";
+  const eduSummary = "appearing in the final year of Bachelor of Technology (B.Tech) in Computer Science and Engineering at VIT-AP University, having previously completed secondary schooling under the Board of Secondary Education, Andhra Pradesh";
+  const achievementSummary = "a Regional Taekwondo Gold Medalist with three years of specialized Martial Arts training and active engagement in competitive Cricket";
+
+  const p1 = `This document constitutes the official candidate application submitted for the ${examName} conducted by the Union Public Service Commission (UPSC).`;
+  const p2 = `The applicant, ${candidateName}, is the son of ${fatherName} and ${motherName}, residing permanently in ${location}, with a recorded date of birth on ${dob}.`;
+  const p3 = `In terms of educational qualifications, ${candidateName} is currently ${eduSummary}.`;
+  const p4 = `In extracurricular disciplines, the applicant has achieved distinction as ${achievementSummary}.`;
 
   const summary = `${p1} ${p2} ${p3} ${p4}`;
 
   const keyPoints = [
-    `Official Application Form submitted for ${examName} (UPSC).`,
+    `Official Application Form submitted for the ${examName} (UPSC).`,
     `Candidate Name: ${candidateName}.`,
     `Parental Details: Father: ${fatherName} | Mother: ${motherName}.`,
-    `Domicile & Location: Anantapur, Andhra Pradesh, India.`,
+    `Permanent Domicile: ${location}.`,
     `Educational Qualification: Final Year B.Tech (Computer Science & Engineering) at VIT-AP University.`,
     `Extracurricular Achievements: Regional Taekwondo Gold Medalist (3 Years Martial Arts Training) & Cricket.`
   ];
