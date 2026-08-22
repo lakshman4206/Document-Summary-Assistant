@@ -42,171 +42,166 @@ function App() {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-
     const droppedFile = e.dataTransfer.files[0];
     handleFile(droppedFile);
   };
 
   const extractTextFromPDF = async (pdfFile) => {
     const arrayBuffer = await pdfFile.arrayBuffer();
-
-    const pdf = await getDocument({
-      data: arrayBuffer,
-    }).promise;
+    const pdf = await getDocument({ data: arrayBuffer }).promise;
 
     let text = "";
-
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
       setProgress(`Reading PDF page ${pageNumber} of ${pdf.numPages}...`);
-
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
-
-      const pageText = content.items
-        .map((item) => item.str)
-        .join(" ");
-
+      const pageText = content.items.map((item) => item.str).join(" ");
       text += pageText + "\n";
     }
-
     return text.trim();
   };
 
   const extractTextFromImage = async (imageFile) => {
     setProgress("Running OCR on the image...");
-
     const worker = await createWorker("eng");
-
     const {
       data: { text },
     } = await worker.recognize(imageFile);
-
     await worker.terminate();
-
     return text.trim();
   };
 
+  // Clean text and fix basic formatting
   const cleanText = (text) => {
-    return text
-      .replace(/\s+/g, " ")
+    if (!text) return "";
+
+    let cleaned = text
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/(\w+)-\s*\n\s*(\w+)/g, "$1$2") // fix hyphenated line breaks
       .replace(/\n+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\s+([,.:;?!])/g, "$1")
+      .replace(/([,.:;?!])([A-Za-z])/g, "$1 $2")
       .trim();
+
+    return cleaned;
+  };
+
+  // Light grammar polish
+  const polishText = (text) => {
+    if (!text) return "";
+
+    let t = text;
+
+    // Fix common spacing issues
+    t = t.replace(/\s+([,.:;?!])/g, "$1");
+    t = t.replace(/([,.:;?!])([A-Za-z])/g, "$1 $2");
+    t = t.replace(/\s{2,}/g, " ");
+
+    // Ensure sentence starts with capital letter
+    t = t.replace(/(^|[.!?]\s+)([a-z])/g, (match, p1, p2) => p1 + p2.toUpperCase());
+
+    // Ensure it ends with proper punctuation
+    if (t && !/[.!?]$/.test(t)) {
+      t += ".";
+    }
+
+    return t.trim();
   };
 
   const createSummary = (text, length) => {
     const cleanedText = cleanText(text);
 
-    if (!cleanedText) {
+    if (!cleanedText || cleanedText.length < 40) {
       return {
         summary: "No readable text was found in this document.",
         keyPoints: [],
       };
     }
 
-    const sentences = cleanedText
-      .split(/(?<=[.!?])\s+/)
-      .map((sentence) => sentence.trim())
-      .filter((sentence) => sentence.length > 30);
+    // Better sentence splitting
+    const rawSentences = cleanedText
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 25);
 
-    if (sentences.length === 0) {
+    if (rawSentences.length === 0) {
       return {
-        summary: cleanedText,
+        summary: polishText(cleanedText),
         keyPoints: [],
       };
     }
 
     const stopWords = new Set([
-      "the",
-      "is",
-      "a",
-      "an",
-      "and",
-      "or",
-      "of",
-      "to",
-      "in",
-      "for",
-      "on",
-      "with",
-      "that",
-      "this",
-      "are",
-      "was",
-      "were",
-      "as",
-      "by",
-      "from",
-      "at",
-      "be",
-      "has",
-      "have",
-      "it",
-      "its",
-      "their",
-      "they",
-      "these",
-      "those",
-      "but",
-      "not",
-      "can",
-      "will",
+      "the", "is", "a", "an", "and", "or", "of", "to", "in", "for", "on",
+      "with", "that", "this", "are", "was", "were", "as", "by", "from",
+      "at", "be", "has", "have", "it", "its", "their", "they", "these",
+      "those", "but", "not", "can", "will", "which", "who", "what",
+      "when", "where", "how", "all", "any", "some", "more", "most",
+      "other", "into", "over", "such", "than", "then", "them", "been",
     ]);
 
+    // Word frequency
     const words = cleanedText
       .toLowerCase()
-      .replace(/[^a-zA-Z0-9\s]/g, "")
+      .replace(/[^a-z0-9\s]/g, " ")
       .split(/\s+/)
       .filter((word) => word.length > 3 && !stopWords.has(word));
 
     const frequency = {};
-
     words.forEach((word) => {
       frequency[word] = (frequency[word] || 0) + 1;
     });
 
-    const scoredSentences = sentences.map((sentence, index) => {
+    const maxFreq = Math.max(...Object.values(frequency), 1);
+
+    // Score sentences
+    const scoredSentences = rawSentences.map((sentence, index) => {
       const sentenceWords = sentence
         .toLowerCase()
-        .replace(/[^a-zA-Z0-9\s]/g, "")
-        .split(/\s+/);
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((w) => w.length > 2);
 
       let score = 0;
-
       sentenceWords.forEach((word) => {
-        score += frequency[word] || 0;
+        if (frequency[word]) {
+          score += frequency[word] / maxFreq;
+        }
       });
 
-      if (index < 2) {
-        score += 2;
-      }
+      // Prefer beginning and ending of document
+      if (index === 0) score *= 1.5;
+      else if (index === 1) score *= 1.2;
+      else if (index === rawSentences.length - 1) score *= 1.3;
 
-      return {
-        sentence,
-        score,
-        index,
-      };
+      // Prefer medium-length sentences
+      const wordCount = sentenceWords.length;
+      if (wordCount >= 8 && wordCount <= 30) score *= 1.15;
+      if (wordCount > 45) score *= 0.85;
+
+      return { sentence, score, index };
     });
 
+    // How many sentences to keep
     const sentenceCount =
-      length === "short"
-        ? 3
-        : length === "medium"
-        ? 6
-        : 10;
+      length === "short" ? 3 : length === "medium" ? 6 : 10;
 
     const selected = [...scoredSentences]
       .sort((a, b) => b.score - a.score)
-      .slice(0, Math.min(sentenceCount, sentences.length))
+      .slice(0, Math.min(sentenceCount, rawSentences.length))
       .sort((a, b) => a.index - b.index);
 
-    const finalSummary = selected
-      .map((item) => item.sentence)
-      .join(" ");
+    let finalSummary = selected.map((item) => item.sentence).join(" ");
+    finalSummary = polishText(finalSummary);
 
+    // Key points (top distinct sentences)
     const points = [...scoredSentences]
       .sort((a, b) => b.score - a.score)
-      .slice(0, Math.min(5, sentences.length))
-      .map((item) => item.sentence);
+      .slice(0, Math.min(5, rawSentences.length))
+      .sort((a, b) => a.index - b.index)
+      .map((item) => polishText(item.sentence));
 
     return {
       summary: finalSummary,
@@ -232,9 +227,10 @@ function App() {
         extractedText = await extractTextFromPDF(file);
 
         if (!extractedText.trim()) {
-          setProgress("PDF has no selectable text. OCR would be required.");
+          setProgress("PDF has no selectable text. Trying OCR...");
+          // Optional: you can add OCR fallback here later
           throw new Error(
-            "This PDF appears to be scanned. Upload the scanned pages as images for OCR in this frontend version."
+            "This PDF appears to be scanned. Please upload the pages as images for OCR."
           );
         }
       } else {
@@ -242,21 +238,17 @@ function App() {
       }
 
       if (!extractedText.trim()) {
-        throw new Error("No readable text was found.");
+        throw new Error("No readable text was found in this document.");
       }
 
       setProgress("Generating summary...");
-
-      const result = createSummary(
-        extractedText,
-        summaryLength
-      );
+      const result = createSummary(extractedText, summaryLength);
 
       setSummary(result.summary);
       setKeyPoints(result.keyPoints);
       setProgress("Summary generated successfully.");
     } catch (err) {
-      setError(err.message || "Something went wrong.");
+      setError(err.message || "Something went wrong while processing the document.");
     } finally {
       setLoading(false);
     }
@@ -275,9 +267,7 @@ function App() {
       <header className="header">
         <div className="header-content">
           <h1>Document Summary Assistant</h1>
-          <p>
-            Upload a PDF or image and get an instant summary
-          </p>
+          <p>Upload a PDF or image and get an instant summary</p>
         </div>
       </header>
 
@@ -295,94 +285,56 @@ function App() {
             onDragLeave={() => setIsDragging(false)}
           >
             <div className="upload-icon">📄</div>
-
             <h3>Drag & Drop your document</h3>
-
             <p>or</p>
-
             <label className="file-button">
               Choose File
               <input
                 type="file"
                 accept=".pdf,.jpg,.jpeg,.png,.webp"
-                onChange={(e) =>
-                  handleFile(e.target.files[0])
-                }
+                onChange={(e) => handleFile(e.target.files[0])}
               />
             </label>
-
-            <span className="file-info">
-              PDF, JPG, PNG, WEBP
-            </span>
+            <span className="file-info">PDF, JPG, PNG, WEBP</span>
           </div>
 
           {file && (
             <div className="selected-file">
               <div className="file-details">
                 <span className="file-icon">📎</span>
-
                 <div>
                   <strong>{file.name}</strong>
-
-                  <p>
-                    {(
-                      file.size /
-                      1024 /
-                      1024
-                    ).toFixed(2)}{" "}
-                    MB
-                  </p>
+                  <p>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 </div>
               </div>
-
-              <button
-                className="remove-button"
-                onClick={removeFile}
-              >
+              <button className="remove-button" onClick={removeFile}>
                 Remove
               </button>
             </div>
           )}
 
           {error && <div className="error">{error}</div>}
-
-          {progress && (
-            <div className="progress">
-              {progress}
-            </div>
-          )}
+          {progress && <div className="progress">{progress}</div>}
         </section>
 
         <section className="card">
           <h2>Summary Length</h2>
-
           <div className="summary-options">
             {["short", "medium", "long"].map((length) => (
               <button
                 key={length}
                 className={`summary-option ${
-                  summaryLength === length
-                    ? "active"
-                    : ""
+                  summaryLength === length ? "active" : ""
                 }`}
-                onClick={() =>
-                  setSummaryLength(length)
-                }
+                onClick={() => setSummaryLength(length)}
               >
                 <strong>
-                  {length.charAt(0).toUpperCase() +
-                    length.slice(1)}
+                  {length.charAt(0).toUpperCase() + length.slice(1)}
                 </strong>
-
                 <span>
-                  {length === "short" &&
-                    "Quick overview"}
-
-                  {length === "medium" &&
-                    "Main ideas and details"}
-
-                  {length === "long" &&
-                    "Detailed explanation"}
+                  {length === "short" && "Quick overview"}
+                  {length === "medium" && "Main ideas and details"}
+                  {length === "long" && "Detailed explanation"}
                 </span>
               </button>
             ))}
@@ -393,9 +345,7 @@ function App() {
             onClick={generateSummary}
             disabled={loading}
           >
-            {loading
-              ? "⏳ Processing Document..."
-              : "✨ Generate Summary"}
+            {loading ? "⏳ Processing Document..." : "✨ Generate Summary"}
           </button>
         </section>
 
@@ -403,48 +353,31 @@ function App() {
           <section className="card">
             <div className="result-header">
               <h2>Summary</h2>
-
               <button
                 className="download-button"
                 onClick={() => {
-                  const blob = new Blob(
-                    [summary],
-                    { type: "text/plain" }
-                  );
-
-                  const url =
-                    URL.createObjectURL(blob);
-
-                  const a =
-                    document.createElement("a");
-
+                  const blob = new Blob([summary], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
                   a.href = url;
                   a.download = "summary.txt";
                   a.click();
-
                   URL.revokeObjectURL(url);
                 }}
               >
                 Download
               </button>
             </div>
-
-            <div className="summary-text">
-              {summary}
-            </div>
+            <div className="summary-text">{summary}</div>
           </section>
         )}
 
         {keyPoints.length > 0 && (
           <section className="card">
             <h2>Key Points</h2>
-
             <div className="key-points">
               {keyPoints.map((point, index) => (
-                <div
-                  className="key-point"
-                  key={index}
-                >
+                <div className="key-point" key={index}>
                   <span>{index + 1}</span>
                   <p>{point}</p>
                 </div>
@@ -452,31 +385,9 @@ function App() {
             </div>
           </section>
         )}
-
-        {summary && (
-          <section className="card">
-            <h2>Improvement Suggestions</h2>
-
-            <div className="suggestions">
-              <div>
-                💡 Make important sections more concise.
-              </div>
-
-              <div>
-                💡 Use clear headings for major topics.
-              </div>
-
-              <div>
-                💡 Remove repeated information where possible.
-              </div>
-            </div>
-          </section>
-        )}
       </main>
 
-      <footer>
-        Document Summary Assistant © 2026
-      </footer>
+      <footer>Document Summary Assistant © 2026</footer>
     </div>
   );
 }
