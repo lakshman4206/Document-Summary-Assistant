@@ -71,43 +71,40 @@ function App() {
     return text.trim();
   };
 
-  // Clean text and fix basic formatting
+  // Clean text + basic formatting fixes
   const cleanText = (text) => {
     if (!text) return "";
 
-    let cleaned = text
+    return text
       .replace(/\r\n/g, "\n")
       .replace(/\r/g, "\n")
-      .replace(/(\w+)-\s*\n\s*(\w+)/g, "$1$2") // fix hyphenated line breaks
+      .replace(/(\w+)-\s*\n\s*(\w+)/g, "$1$2") // fix broken hyphens
       .replace(/\n+/g, " ")
       .replace(/\s+/g, " ")
       .replace(/\s+([,.:;?!])/g, "$1")
       .replace(/([,.:;?!])([A-Za-z])/g, "$1 $2")
       .trim();
-
-    return cleaned;
   };
 
-  // Light grammar polish
+  // Light grammar & readability polish
   const polishText = (text) => {
     if (!text) return "";
 
-    let t = text;
+    let t = text
+      .replace(/\s+([,.:;?!])/g, "$1")
+      .replace(/([,.:;?!])([A-Za-z])/g, "$1 $2")
+      .replace(/\s{2,}/g, " ")
+      .trim();
 
-    // Fix common spacing issues
-    t = t.replace(/\s+([,.:;?!])/g, "$1");
-    t = t.replace(/([,.:;?!])([A-Za-z])/g, "$1 $2");
-    t = t.replace(/\s{2,}/g, " ");
-
-    // Ensure sentence starts with capital letter
-    t = t.replace(/(^|[.!?]\s+)([a-z])/g, (match, p1, p2) => p1 + p2.toUpperCase());
+    // Capitalize first letter of sentences
+    t = t.replace(/(^|[.!?]\s+)([a-z])/g, (_, p1, p2) => p1 + p2.toUpperCase());
 
     // Ensure it ends with proper punctuation
     if (t && !/[.!?]$/.test(t)) {
       t += ".";
     }
 
-    return t.trim();
+    return t;
   };
 
   const createSummary = (text, length) => {
@@ -121,12 +118,12 @@ function App() {
     }
 
     // Better sentence splitting
-    const rawSentences = cleanedText
+    const sentences = cleanedText
       .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
       .map((s) => s.trim())
       .filter((s) => s.length > 25);
 
-    if (rawSentences.length === 0) {
+    if (sentences.length === 0) {
       return {
         summary: polishText(cleanedText),
         keyPoints: [],
@@ -142,7 +139,7 @@ function App() {
       "other", "into", "over", "such", "than", "then", "them", "been",
     ]);
 
-    // Word frequency
+    // Build word frequency
     const words = cleanedText
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, " ")
@@ -156,8 +153,8 @@ function App() {
 
     const maxFreq = Math.max(...Object.values(frequency), 1);
 
-    // Score sentences
-    const scoredSentences = rawSentences.map((sentence, index) => {
+    // Score each sentence
+    const scoredSentences = sentences.map((sentence, index) => {
       const sentenceWords = sentence
         .toLowerCase()
         .replace(/[^a-z0-9\s]/g, " ")
@@ -171,35 +168,35 @@ function App() {
         }
       });
 
-      // Prefer beginning and ending of document
+      // Prefer start and end of document
       if (index === 0) score *= 1.5;
-      else if (index === 1) score *= 1.2;
-      else if (index === rawSentences.length - 1) score *= 1.3;
+      else if (index === 1) score *= 1.25;
+      else if (index === sentences.length - 1) score *= 1.3;
 
       // Prefer medium-length sentences
       const wordCount = sentenceWords.length;
-      if (wordCount >= 8 && wordCount <= 30) score *= 1.15;
-      if (wordCount > 45) score *= 0.85;
+      if (wordCount >= 8 && wordCount <= 32) score *= 1.15;
+      if (wordCount > 45) score *= 0.8;
 
       return { sentence, score, index };
     });
 
-    // How many sentences to keep
+    // How many sentences based on length
     const sentenceCount =
       length === "short" ? 3 : length === "medium" ? 6 : 10;
 
     const selected = [...scoredSentences]
       .sort((a, b) => b.score - a.score)
-      .slice(0, Math.min(sentenceCount, rawSentences.length))
+      .slice(0, Math.min(sentenceCount, sentences.length))
       .sort((a, b) => a.index - b.index);
 
     let finalSummary = selected.map((item) => item.sentence).join(" ");
     finalSummary = polishText(finalSummary);
 
-    // Key points (top distinct sentences)
+    // Key points
     const points = [...scoredSentences]
       .sort((a, b) => b.score - a.score)
-      .slice(0, Math.min(5, rawSentences.length))
+      .slice(0, Math.min(5, sentences.length))
       .sort((a, b) => a.index - b.index)
       .map((item) => polishText(item.sentence));
 
@@ -227,8 +224,6 @@ function App() {
         extractedText = await extractTextFromPDF(file);
 
         if (!extractedText.trim()) {
-          setProgress("PDF has no selectable text. Trying OCR...");
-          // Optional: you can add OCR fallback here later
           throw new Error(
             "This PDF appears to be scanned. Please upload the pages as images for OCR."
           );
@@ -319,6 +314,7 @@ function App() {
 
         <section className="card">
           <h2>Summary Length</h2>
+
           <div className="summary-options">
             {["short", "medium", "long"].map((length) => (
               <button
