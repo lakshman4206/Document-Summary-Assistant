@@ -174,13 +174,25 @@ const cleanExtractedText = (text) => {
 };
 
 const getSentences = (text) => {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
+  if (!text) return [];
+  const abbrevs = ["e.g.", "i.e.", "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.", "vs.", "U.S.", "U.K.", "Inc.", "Ltd.", "p.m.", "a.m."];
+  let protectedText = text;
+  abbrevs.forEach((abb, idx) => {
+    protectedText = protectedText.replaceAll(abb, `__ABB_${idx}__`);
+  });
+
+  const raw = protectedText.split(/(?<=[.!?])\s+(?=[A-Z0-9])/);
+  return raw
+    .map((s) => {
+      let restored = s;
+      abbrevs.forEach((abb, idx) => {
+        restored = restored.replaceAll(`__ABB_${idx}__`, abb);
+      });
+      return restored.trim();
+    })
     .filter((s) => {
       const words = s.split(/\s+/);
       const letters = (s.match(/[A-Za-z]/g) || []).length;
-
       return words.length >= 4 && letters >= 15;
     });
 };
@@ -1551,8 +1563,8 @@ ${keywords
               className="theme-toggle-btn"
               onClick={toggleTheme}
               title={`Switch to ${theme === "dark"
-                  ? "Light"
-                  : "Dark"
+                ? "Light"
+                : "Dark"
                 } Mode`}
             >
               {theme === "dark"
@@ -1612,8 +1624,8 @@ ${keywords
             <div className="tab-nav">
               <button
                 className={`tab-btn ${activeTab === "upload"
-                    ? "active"
-                    : ""
+                  ? "active"
+                  : ""
                   }`}
                 onClick={() =>
                   setActiveTab(
@@ -1626,8 +1638,8 @@ ${keywords
 
               <button
                 className={`tab-btn ${activeTab === "text"
-                    ? "active"
-                    : ""
+                  ? "active"
+                  : ""
                   }`}
                 onClick={() =>
                   setActiveTab("text")
@@ -1642,8 +1654,8 @@ ${keywords
                 {!file ? (
                   <div
                     className={`dropzone ${isDragging
-                        ? "drag-active"
-                        : ""
+                      ? "drag-active"
+                      : ""
                       }`}
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -1860,9 +1872,9 @@ ${keywords
                     <div
                       key={opt.id}
                       className={`length-option-card ${summaryLength ===
-                          opt.id
-                          ? "active"
-                          : ""
+                        opt.id
+                        ? "active"
+                        : ""
                         }`}
                       onClick={() =>
                         setSummaryLength(
@@ -1890,8 +1902,8 @@ ${keywords
                 <div className="option-select-row">
                   <div
                     className={`engine-chip ${engine === "client"
-                        ? "active"
-                        : ""
+                      ? "active"
+                      : ""
                       }`}
                     onClick={() =>
                       setEngine("client")
@@ -1908,8 +1920,8 @@ ${keywords
 
                   <div
                     className={`engine-chip ${engine === "ai"
-                        ? "active"
-                        : ""
+                      ? "active"
+                      : ""
                       }`}
                     onClick={() =>
                       setEngine("ai")
@@ -2107,9 +2119,9 @@ ${keywords
                       <button
                         key={speed}
                         className={`speed-chip ${speechRate ===
-                            speed
-                            ? "active"
-                            : ""
+                          speed
+                          ? "active"
+                          : ""
                           }`}
                         onClick={() =>
                           changeSpeechSpeed(
@@ -2504,7 +2516,7 @@ ${keywords
             Engineered with modern Web &
             NLP technologies by{" "}
             <strong>
-              Lakshman Murthy
+              Lakshmana Murthy
             </strong>
           </p>
 

@@ -7,6 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from huggingface_hub import InferenceClient
 from pydantic import BaseModel
 
+from spell_cleaner import (
+    clean_text_formatting,
+    correct_spelling,
+    robust_sentence_split,
+    local_textrank_summarize
+)
+
 load_dotenv()
 
 app = FastAPI(
@@ -22,16 +29,7 @@ app.add_middleware(
 )
 
 hf_token = os.getenv("HF_TOKEN")
-
-if not hf_token:
-    raise RuntimeError(
-        "HF_TOKEN is not configured."
-    )
-
-client = InferenceClient(
-    api_key=hf_token
-)
-
+client = InferenceClient(api_key=hf_token) if hf_token else None
 MODEL = "facebook/bart-large-cnn"
 
 
@@ -64,41 +62,51 @@ def health():
     response_model=SummaryResponse
 )
 def summarize(request: SummaryRequest):
-
-    if not request.text.strip():
+    if not request.text or not request.text.strip():
         raise HTTPException(
             status_code=400,
             detail="No document text was provided."
         )
 
-    clean_text = request.text.strip()[:4000]
+    # 1. Clean formatting (PDF artifacts, redundant linebreaks, hyphenation)
+    cleaned_input = clean_text_formatting(request.text.strip()[:6000])
 
-    min_len = 25 if request.length == "short" else 90 if request.length == "long" else 40
-    max_len = 75 if request.length == "short" else 260 if request.length == "long" else 140
+    summary_text = ""
+    used_fallback = False
 
-    try:
-        res = client.summarization(
-            text=clean_text,
-            model=MODEL
-        )
+    # 2. Attempt Hugging Face summarization if client is available
+    if client:
+        try:
+            res = client.summarization(
+                text=cleaned_input,
+                model=MODEL
+            )
+            raw_summary = res.summary_text.strip() if hasattr(res, "summary_text") else str(res).strip()
+            if raw_summary and len(raw_summary) > 20:
+                summary_text = raw_summary
+        except Exception as error:
+            print("Hugging Face API unavailable or returned error:", repr(error))
+            used_fallback = True
 
-        summary_text = res.summary_text.strip() if hasattr(res, "summary_text") else str(res).strip()
+    # 3. If HF API was unavailable, missing token, or failed, use local NLP summarizer
+    if not summary_text:
+        used_fallback = True
+        summary_text, _ = local_textrank_summarize(cleaned_input, length=request.length)
 
-        # Split into key points
-        import re
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', summary_text) if len(s.strip()) > 15]
-        key_points = sentences[:2 if request.length == "short" else 6 if request.length == "long" else 4]
-        if not key_points:
-            key_points = [summary_text]
+    # 4. Apply spell correction to eliminate typos and tokenization glitches
+    summary_text = correct_spelling(summary_text)
 
-        return SummaryResponse(
-            summary=summary_text,
-            key_points=key_points
-        )
+    # 5. Extract bullet points cleanly using NLTK robust sentence boundary splitting
+    sentences = robust_sentence_split(summary_text)
+    
+    # Filter and format key points based on length preference
+    target_count = 2 if request.length == "short" else 5 if request.length == "long" else 3
+    key_points = [correct_spelling(s) for s in sentences[:target_count]]
+    
+    if not key_points:
+        key_points = [summary_text]
 
-    except Exception as error:
-        print("HUGGING FACE ERROR:", repr(error))
-        raise HTTPException(
-            status_code=500,
-            detail=str(error)
-        )
+    return SummaryResponse(
+        summary=summary_text,
+        key_points=key_points
+    )
