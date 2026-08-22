@@ -11,7 +11,8 @@ from spell_cleaner import (
     clean_text_formatting,
     correct_spelling,
     robust_sentence_split,
-    local_textrank_summarize
+    local_textrank_summarize,
+    detect_and_synthesize_form_document
 )
 
 load_dotenv()
@@ -68,13 +69,20 @@ def summarize(request: SummaryRequest):
             detail="No document text was provided."
         )
 
-    # 1. Clean formatting (PDF artifacts, redundant linebreaks, hyphenation)
-    cleaned_input = clean_text_formatting(request.text.strip()[:6000])
+    # 1. Clean formatting & OCR artifacts
+    cleaned_input = clean_text_formatting(request.text.strip()[:8000])
+
+    # 2. Check if text is a form/resume/structured application profile
+    form_summary, form_key_points = detect_and_synthesize_form_document(cleaned_input)
+    if form_summary and form_key_points:
+        return SummaryResponse(
+            summary=form_summary,
+            key_points=form_key_points
+        )
 
     summary_text = ""
-    used_fallback = False
 
-    # 2. Attempt Hugging Face summarization if client is available
+    # 3. Attempt Hugging Face summarization if client is available
     if client:
         try:
             res = client.summarization(
@@ -86,17 +94,15 @@ def summarize(request: SummaryRequest):
                 summary_text = raw_summary
         except Exception as error:
             print("Hugging Face API unavailable or returned error:", repr(error))
-            used_fallback = True
 
-    # 3. If HF API was unavailable, missing token, or failed, use local NLP summarizer
+    # 4. If HF API was unavailable, missing token, or failed, use local NLP summarizer
     if not summary_text:
-        used_fallback = True
         summary_text, _ = local_textrank_summarize(cleaned_input, length=request.length)
 
-    # 4. Apply spell correction to eliminate typos and tokenization glitches
+    # 5. Apply spell correction to eliminate typos and tokenization glitches
     summary_text = correct_spelling(summary_text)
 
-    # 5. Extract bullet points cleanly using NLTK robust sentence boundary splitting
+    # 6. Extract bullet points cleanly using NLTK robust sentence boundary splitting
     sentences = robust_sentence_split(summary_text)
     
     # Filter and format key points based on length preference
