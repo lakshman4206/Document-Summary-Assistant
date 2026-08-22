@@ -92,6 +92,61 @@ def extract_form_candidate_name(text: str) -> str:
     return "Kadapala Lakshmana Murthy"
 
 
+def fix_grammar_and_homophones(text: str) -> str:
+    """Enforces standard English grammatical rules, homophone corrections, and article agreement."""
+    if not text:
+        return ""
+    
+    t = text
+    
+    # 1. Article Agreement ("a" vs "an")
+    t = re.sub(r'\b[Aa]\s+([aeiouAEIOU]\w*)', lambda m: 'an ' + m.group(1) if not re.match(r'^(?:univ|use|uniq|unit|user|eul|euro)', m.group(1), re.I) else 'a ' + m.group(1), t)
+    t = re.sub(r'\b[Aa]n\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]\w*)', lambda m: 'an ' + m.group(1) if re.match(r'^(?:hour|honest|honor|heir)', m.group(1), re.I) else 'a ' + m.group(1), t)
+    
+    # 2. Homophones and Common Grammatical Errors
+    rules = [
+        # Comparison: than vs then
+        (r'\bmore\s+then\b', 'more than'),
+        (r'\bless\s+then\b', 'less than'),
+        (r'\bfaster\s+then\b', 'faster than'),
+        (r'\bbetter\s+then\b', 'better than'),
+        (r'\bgreater\s+then\b', 'greater than'),
+        (r'\brather\s+then\b', 'rather than'),
+        (r'\bearlier\s+then\b', 'earlier than'),
+        (r'\bhigher\s+then\b', 'higher than'),
+        
+        # Possessive vs Contraction: your vs you're
+        (r'\byour\s+(welcome|right|going|able|ready|invited)\b', r"you're \1"),
+        (r"\byou're\s+(name|car|house|file|document|profile|email)\b", r"your \1"),
+        
+        # its vs it's
+        (r"\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy)\b", r"its \1"),
+        
+        # their vs there vs they're
+        (r'\bthere\s+(names|features|results|findings|skills)\b', r"their \1"),
+        (r'\btheir\s+(is|are|was|were|will be)\b', r"there \1"),
+        
+        # affect vs effect
+        (r'\bthe\s+affect\s+of\b', 'the effect of'),
+        (r'\ba\s+significant\s+affect\b', 'a significant effect'),
+        
+        # Subject-Verb Agreement common fixes
+        (r'\bdata\s+are\b', 'data is'),
+        (r'\beveryone\s+are\b', 'everyone is'),
+        (r'\bsomeone\s+are\b', 'someone is'),
+        
+        # Punctuation Spacing & Polish
+        (r'\s+([,.:;?!])', r'\1'),
+        (r'([,.:;?!])([A-Za-z])', r'\1 \2'),
+        (r'\s{2,}', ' ')
+    ]
+    
+    for pattern, repl in rules:
+        t = re.sub(pattern, repl, t, flags=re.IGNORECASE)
+        
+    return t.strip()
+
+
 def clean_text_formatting(text: str) -> str:
     """Clean PDF artifacts, OCR glitches, broken line-break hyphenations, and redundant whitespace."""
     if not text:
@@ -171,7 +226,7 @@ def correct_spelling(text: str) -> str:
             corrected_tokens.append(token)
 
     result = "".join(corrected_tokens)
-    result = re.sub(r'\b([Aa])n\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ])', r'\1 \2', result)
+    result = fix_grammar_and_homophones(result)
     return result
 
 

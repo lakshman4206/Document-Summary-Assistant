@@ -192,6 +192,50 @@ const cleanExtractedText = (text) => {
   return finalSentences.join(" ").trim();
 };
 
+const fixGrammarAndHomophones = (text) => {
+  if (!text) return "";
+
+  let t = text;
+
+  // Article agreement ("a" vs "an")
+  t = t.replace(/\b([Aa])\s+([aeiouAEIOU]\w*)/g, (match, p1, p2) => {
+    return /^(?:univ|use|uniq|unit|user|eul|euro)/i.test(p2) ? "a " + p2 : "an " + p2;
+  });
+  t = t.replace(/\b([Aa])n\s+([bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]\w*)/g, (match, p1, p2) => {
+    return /^(?:hour|honest|honor|heir)/i.test(p2) ? "an " + p2 : "a " + p2;
+  });
+
+  const rules = [
+    [/\bmore\s+then\b/gi, "more than"],
+    [/\bless\s+then\b/gi, "less than"],
+    [/\bfaster\s+then\b/gi, "faster than"],
+    [/\bbetter\s+then\b/gi, "better than"],
+    [/\bgreater\s+then\b/gi, "greater than"],
+    [/\brather\s+then\b/gi, "rather than"],
+    [/\bearlier\s+then\b/gi, "earlier than"],
+    [/\bhigher\s+then\b/gi, "higher than"],
+    [/\byour\s+(welcome|right|going|able|ready|invited)\b/gi, "you're $1"],
+    [/\byou're\s+(name|car|house|file|document|profile|email)\b/gi, "your $1"],
+    [/\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy)\b/gi, "its $1"],
+    [/\bthere\s+(names|features|results|findings|skills)\b/gi, "their $1"],
+    [/\btheir\s+(is|are|was|were|will be)\b/gi, "there $1"],
+    [/\bthe\s+affect\s+of\b/gi, "the effect of"],
+    [/\ba\s+significant\s+affect\b/gi, "a significant effect"],
+    [/\bdata\s+are\b/gi, "data is"],
+    [/\beveryone\s+are\b/gi, "everyone is"],
+    [/\bsomeone\s+are\b/gi, "someone is"],
+    [/\s+([,.:;?!])/g, "$1"],
+    [/([,.:;?!])([A-Za-z])/g, "$1 $2"],
+    [/\s{2,}/g, " "]
+  ];
+
+  for (const [pattern, repl] of rules) {
+    t = t.replace(pattern, repl);
+  }
+
+  return t.trim();
+};
+
 const cleanPersonName = (rawName) => {
   if (!rawName) return "";
 
@@ -2001,7 +2045,7 @@ ${keywords
                     {
                       id: "short",
                       name: "Short",
-                      desc: "Crisp TL;DR"
+                      desc: "CRISP"
                     },
                     {
                       id: "medium",
