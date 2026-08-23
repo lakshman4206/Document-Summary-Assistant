@@ -714,21 +714,23 @@ const extractTextFromPDF = async (file, setProgress) => {
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
 
+    // PDF.js returns mixed item types (TextItem, MarkedContent, etc)
+    // Only TextItem has `str` — MarkedContent items do not. Guard defensively.
     const items = content.items
+      .filter((item) => typeof item.str === "string" && item.str.trim() !== "")
       .map((item) => {
         const transform = item.transform || [];
         return {
-          text: item.str || "",
+          text: item.str,
           x: transform[4] || 0,
           y: transform[5] || 0,
           angle: Math.atan2(transform[1] || 0, transform[0] || 1) * (180 / Math.PI)
         };
       })
       .filter((item) => {
-        if (!item.text.trim()) return false;
         if (Math.abs(item.angle) > 45) return false;
-        if (item.y > viewport.height * 0.95) return false;
-        if (item.y < viewport.height * 0.05) return false;
+        if (item.y > viewport.height * 0.97) return false;
+        if (item.y < viewport.height * 0.03) return false;
         return true;
       });
 
@@ -779,8 +781,9 @@ const ocrScannedPDF = async (pdf, setProgress) => {
       await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
     }
 
-    const { data: { text } } = await worker.recognize(processedCanvas);
-    fullText += text + "\n";
+    const ocrResult = await worker.recognize(processedCanvas);
+    const pageText = ocrResult?.data?.text || "";
+    fullText += pageText + "\n";
   }
 
   await worker.terminate();
@@ -800,7 +803,8 @@ const extractTextFromImage = async (file, setProgress) => {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
   }
 
-  const { data: { text } } = await worker.recognize(processedCanvas);
+  const ocrResult = await worker.recognize(processedCanvas);
+  const text = ocrResult?.data?.text || "";
   await worker.terminate();
 
   return text;
@@ -992,13 +996,16 @@ function App() {
 
         if (ext === "pdf") {
           const result = await extractTextFromPDF(file, setProgress);
-          sourceText = result.text;
+          // Defensive guard: result may be undefined if PDF.js fails
+          sourceText = result?.text || "";
 
           const cleanedPreview = cleanExtractedText(sourceText);
-          if (cleanedPreview.replace(/\s/g, "").length < 60) {
+          if (!cleanedPreview || cleanedPreview.replace(/\s/g, "").length < 60) {
             setScanPhase(2);
             setProgress("Phase 2/5: Scanned PDF detected. High-density neural OCR pass...");
-            sourceText = await ocrScannedPDF(result.pdf, setProgress);
+            if (result?.pdf) {
+              sourceText = await ocrScannedPDF(result.pdf, setProgress);
+            }
           }
         } else if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
           setScanPhase(2);
