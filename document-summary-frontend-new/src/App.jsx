@@ -8,6 +8,15 @@ import "./App.css";
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
+const PRESERVED_ACRONYMS = new Set([
+  "AI", "ML", "API", "APIS", "UI", "UX", "PDF", "PDFS", "DOC", "DOCX", "PPT", "PPTX",
+  "HTML", "CSS", "JS", "NLP", "LLM", "LLMS", "GPT", "RAG", "GPU", "CPU", "RAM",
+  "USA", "US", "UK", "EU", "UN", "NASA", "WHO", "ISRO", "DRDO", "UPSC", "SSC", "HSC",
+  "CEO", "CTO", "CFO", "COO", "HR", "IT", "ID", "IP", "DNS", "URL", "HTTP", "HTTPS",
+  "SQL", "NOSQL", "AWS", "GCP", "SAAS", "PAAS", "IAAS", "B2B", "B2C", "ROI", "KPI",
+  "IoT", "WiFi", "OCR", "IEEE", "ISO", "COVID", "DNA", "RNA", "IQ", "EQ", "MB", "GB", "TB"
+]);
+
 const STOP_WORDS = new Set([
   "about", "above", "after", "again", "against", "also",
   "although", "among", "because", "before", "being",
@@ -26,11 +35,12 @@ const STOP_WORDS = new Set([
   "to", "on", "as", "by", "an", "a", "or", "be"
 ]);
 
-const KEEP_SHORT_WORDS = new Set([
+const VALID_SHORT_WORDS = new Set([
   "a", "i", "am", "an", "as", "at", "be", "by",
   "do", "go", "he", "if", "in", "is", "it", "me",
   "my", "no", "of", "on", "or", "so", "to", "up",
-  "us", "we", "ai", "ml", "ui", "ux", "id", "api"
+  "us", "we", "ok", "tv", "mr", "ms", "dr", "vs",
+  "re", "ex", "ad", "pm", "am"
 ]);
 
 // Real acronyms/initialisms worth preserving in ALL CAPS when we
@@ -96,105 +106,149 @@ const getWordFrequency = (text) => {
   return frequency;
 };
 
-const isLikelyNoiseToken = (token) => {
-  const clean = token.trim();
+/**
+ * 1. Broken Word Repair
+ */
+export const repairBrokenWords = (text) => {
+  if (!text) return "";
+  let cleaned = text;
+
+  // Rejoin hyphenated line breaks: "transfor-\nmation" -> "transformation"
+  cleaned = cleaned.replace(/([A-Za-z]{2,})-\s*\r?\n\s*([A-Za-z]{2,})/g, "$1$2");
+
+  // Rejoin broken hyphens inside words: "compu- ter" -> "computer"
+  cleaned = cleaned.replace(/([A-Za-z]{2,})-\s+([A-Za-z]{2,})/g, (match, p1, p2) => `${p1}${p2}`);
+
+  // Rejoin spaced single-letter sequences: "c o m p u t e r" -> "computer"
+  cleaned = cleaned.replace(/\b([A-Za-z](?:\s+[A-Za-z]){2,})\b/g, (match) => {
+    const combined = match.replace(/\s+/g, "");
+    return combined.length >= 3 ? combined : match;
+  });
+
+  return cleaned;
+};
+
+/**
+ * 2. Meaningless / Gibberish Token Filter
+ */
+export const isLikelyNoiseToken = (token) => {
+  if (!token) return true;
+  const clean = token.replace(/^[^\w]+|[^\w]+$/g, "");
   if (!clean) return true;
 
-  const letters = (clean.match(/[A-Za-z]/g) || []).length;
-  const numbers = (clean.match(/[0-9]/g) || []).length;
-  const strange = (clean.match(/[^A-Za-z0-9'’-]/g) || []).length;
+  const lower = clean.toLowerCase();
 
-  if (letters === 1 && !KEEP_SHORT_WORDS.has(clean.toLowerCase())) return true;
+  // Known acronyms
+  if (PRESERVED_ACRONYMS.has(clean.toUpperCase())) return false;
 
-  if (
-    letters === 2 &&
-    clean === clean.toUpperCase() &&
-    !["AI", "IT", "TV", "UK", "US", "ML", "UI", "UX"].includes(clean)
-  ) {
-    return true;
+  // Single & double letter words
+  if (clean.length === 1) return !["a", "i"].includes(lower);
+  if (clean.length === 2) return !VALID_SHORT_WORDS.has(lower) && !PRESERVED_ACRONYMS.has(clean.toUpperCase());
+
+  // Alphanumeric numbers, percentages, currencies
+  if (/^[\d,.:;%$\-+/]+$/.test(clean)) return false;
+
+  const letters = (clean.match(/[a-zA-Z]/g) || []).length;
+  const nonLetters = clean.length - letters;
+  if (nonLetters > letters) return true;
+
+  // Repetitive characters: "aaaa", "xxxx"
+  if (/(.)\1{3,}/.test(clean)) return true;
+
+  // English words with 3+ letters must contain at least one vowel
+  if (letters >= 3 && !/[aeiouyAEIOUY]/.test(clean)) {
+    return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
   }
 
-  if (strange > letters && letters < 4) return true;
-  if (numbers > letters && letters < 4) return true;
+  // 5+ consonants in a row is OCR gibberish
+  if (/[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}/.test(clean)) {
+    return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
+  }
 
   return false;
 };
 
-const cleanSentenceTokens = (sentence) => {
-  return sentence
-    .split(/\s+/)
-    .filter((token) => !isLikelyNoiseToken(token))
-    .join(" ")
-    .replace(/\s+([,.!?;:])/g, "$1")
-    .replace(/([,.!?;:])([A-Za-z])/g, "$1 $2")
-    .trim();
+/**
+ * 3. Capitalization & True-Casing
+ */
+export const normalizeSentenceCase = (sentence) => {
+  const trimmed = sentence.trim();
+  if (!trimmed) return "";
+
+  const words = trimmed.split(/\s+/);
+  if (!words.length) return "";
+
+  let allCapsCount = 0;
+  let titleCaseCount = 0;
+  let alphaWordCount = 0;
+
+  words.forEach((w) => {
+    const pure = w.replace(/[^A-Za-z]/g, "");
+    if (pure.length >= 2) {
+      alphaWordCount++;
+      if (pure === pure.toUpperCase() && !PRESERVED_ACRONYMS.has(pure)) {
+        allCapsCount++;
+      } else if (pure[0] === pure[0].toUpperCase() && pure.slice(1) === pure.slice(1).toLowerCase()) {
+        titleCaseCount++;
+      }
+    }
+  });
+
+  const isAllOrMajorityCaps = alphaWordCount >= 2 && (allCapsCount / alphaWordCount > 0.5);
+  const isHeavyTitleCase = alphaWordCount >= 3 && (titleCaseCount / alphaWordCount > 0.7);
+
+  const processedWords = words.map((word, idx) => {
+    const match = word.match(/^([^A-Za-z0-9]*)(.*?)([^A-Za-z0-9]*)$/);
+    if (!match) return word;
+
+    const [, leadPunct, core, trailPunct] = match;
+    if (!core) return word;
+
+    if (PRESERVED_ACRONYMS.has(core.toUpperCase())) {
+      return leadPunct + core.toUpperCase() + trailPunct;
+    }
+
+    let cleanCore = core;
+    if (/[a-z][A-Z]/.test(cleanCore) && !/^[A-Z][a-z]+[A-Z]/.test(cleanCore)) {
+      cleanCore = cleanCore.toLowerCase();
+    }
+
+    if (isAllOrMajorityCaps || isHeavyTitleCase) {
+      if (idx === 0) {
+        cleanCore = cleanCore.charAt(0).toUpperCase() + cleanCore.slice(1).toLowerCase();
+      } else {
+        cleanCore = PRESERVED_ACRONYMS.has(cleanCore.toUpperCase())
+          ? cleanCore.toUpperCase()
+          : cleanCore.toLowerCase();
+      }
+    } else {
+      if (idx === 0) {
+        cleanCore = cleanCore.charAt(0).toUpperCase() + cleanCore.slice(1);
+      }
+    }
+
+    return leadPunct + cleanCore + trailPunct;
+  });
+
+  let res = processedWords.join(" ");
+  res = res.replace(/^([a-z])/, (m, c) => c.toUpperCase());
+  return res;
 };
 
-const cleanExtractedText = (text) => {
+export const normalizeCapitalization = (text) => {
   if (!text) return "";
-
-  let cleaned = text;
-
-  // Generic document cleanup: page numbers, timestamps, citation brackets
-  cleaned = cleaned.replace(/\bPage\s+\d+\s+of\s+\d+\b/gi, " ");
-  cleaned = cleaned.replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
-  cleaned = cleaned.replace(/\[\s*\d+\s*\]/g, " ");
-
-  // Remove common noise symbols and decorative glyphs
-  cleaned = cleaned.replace(/(?:^|\s)(?:page\s*)?\d{1,4}(?:\s|$)/gi, " ");
-  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u00A9\u00AE\u2122\u2192\u2190\u2191\u2193\u2194\u2195\u2022\u25AA\u25AB\u25E6\u25A0\u25A1\u25C6\u25C7~`^_=]+/g, " ");
-  cleaned = cleaned.replace(/\[[^\]]{0,150}\]/g, " ");
-  cleaned = cleaned.replace(/([,.!?;:]){2,}/g, "$1");
-
-  const lines = cleaned.split(/\r?\n/);
-  const usefulLines = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!trimmed) continue;
-
-    const letters = (trimmed.match(/[A-Za-z]/g) || []).length;
-    const numbers = (trimmed.match(/\d/g) || []).length;
-    const symbols = (trimmed.match(/[^A-Za-z0-9\s.,!?'"\u2018\u2019():;\-]/g) || []).length;
-
-    if (letters < 3) continue;
-    if (symbols > letters * 1.2) continue;
-    if (numbers > letters * 1.5) continue;
-
-    usefulLines.push(trimmed);
-  }
-
-  cleaned = usefulLines.join(" ");
-  cleaned = cleaned.replace(/\s+/g, " ");
-
-  const roughSentences = cleaned.split(/(?<=[.!?])\s+/);
-  const finalSentences = [];
-
-  for (const sentence of roughSentences) {
-    const cleanSentence = cleanSentenceTokens(sentence);
-    const letters = (cleanSentence.match(/[A-Za-z]/g) || []).length;
-    const words = cleanSentence.split(/\s+/).filter(Boolean);
-
-    if (words.length < 4 || letters < 15) continue;
-
-    finalSentences.push(cleanSentence);
-  }
-
-  return finalSentences.join(" ").trim();
+  const segments = text.split(/(?<=[.!?\n])\s+/);
+  return segments.map(normalizeSentenceCase).filter(Boolean).join(" ");
 };
 
-const fixGrammarAndHomophones = (text) => {
+/**
+ * 4. Grammar, Homophones, Article Agreement & Polish
+ */
+export const fixGrammarAndHomophones = (text) => {
   if (!text) return "";
-
   let t = text.trim();
 
-  // Normalize stray ALL-CAPS words before anything else, so later steps
-  // (like re-capitalizing the first letter of each sentence) work on
-  // already-normalized casing instead of fighting it.
-  t = normalizeRandomCaps(t);
-
-  // 1. Article agreement ("a" vs "an" with phonetic exceptions)
+  // Article agreement
   t = t.replace(/\b([Aa])\s+([aeiouAEIOU]\w*)/g, (match, p1, p2) => {
     const isConsonantSound = /^(?:univ|use|uniq|unit|user|eul|euro|one|once)/i.test(p2);
     return isConsonantSound ? "a " + p2 : "an " + p2;
@@ -204,9 +258,8 @@ const fixGrammarAndHomophones = (text) => {
     return isVowelSound ? "an " + p2 : "a " + p2;
   });
 
-  // 2. Comprehensive grammar, homophone, redundancy, and flow rules
+  // Homophone & phrasing rules
   const rules = [
-    // Comparisons: than vs then
     [/\bmore\s+then\b/gi, "more than"],
     [/\bless\s+then\b/gi, "less than"],
     [/\bfaster\s+then\b/gi, "faster than"],
@@ -217,28 +270,27 @@ const fixGrammarAndHomophones = (text) => {
     [/\bhigher\s+then\b/gi, "higher than"],
     [/\blower\s+then\b/gi, "lower than"],
     [/\bother\s+then\b/gi, "other than"],
-    // you're vs your
+
     [/\byour\s+(welcome|right|going|able|ready|invited|doing)\b/gi, "you're $1"],
     [/\byou're\s+(name|car|house|file|document|profile|email|data|work)\b/gi, "your $1"],
-    // its vs it's
+
     [/\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy|structure|content|growth)\b/gi, "its $1"],
-    // their vs there
+
     [/\bthere\s+(names|features|results|findings|skills|roles|efforts)\b/gi, "their $1"],
     [/\btheir\s+(is|are|was|were|will be|can be|has been)\b/gi, "there $1"],
-    // affect vs effect
-    [/\bthe\s+affect\s+of\b/gi, "the effect of"],
-    [/\ba\s+significant\s+affect\b/gi, "a significant effect"],
+
+    [/\b(an|the|a|significant|direct|indirect|adverse|positive|negative|profound)\s+affect\b/gi, "$1 effect"],
     [/\bhave\s+an\s+affect\s+on\b/gi, "have an effect on"],
-    // Conciseness
+
     [/\bin\s+order\s+to\b/gi, "to"],
     [/\bdue\s+to\s+the\s+fact\s+that\b/gi, "because"],
     [/\bat\s+the\s+present\s+time\b/gi, "currently"],
-    // Subject-verb agreement
+
     [/\beveryone\s+are\b/gi, "everyone is"],
     [/\bsomeone\s+are\b/gi, "someone is"],
-    // Duplicate word removal (e.g. "the the")
-    [/\b(the|and|in|of|to|is|that)\s+\1\b/gi, "$1"],
-    // Punctuation & spacing
+
+    [/\b(the|and|in|of|to|is|that|for|with|as)\s+\1\b/gi, "$1"],
+
     [/\s+([,.:;?!])/g, "$1"],
     [/([,.:;?!])([A-Za-z])/g, "$1 $2"],
     [/\s{2,}/g, " "]
@@ -248,13 +300,53 @@ const fixGrammarAndHomophones = (text) => {
     t = t.replace(pattern, repl);
   }
 
-  // Capitalize the first letter of every sentence
   t = t.replace(/(^|[.!?]\s+)([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
-
   return t.trim();
 };
 
-// (Form-specific hardcoded synthesis removed — the summarizer now works correctly for any document type)
+/**
+ * 5. Full Document Cleaning Pipeline
+ */
+export const cleanExtractedText = (text) => {
+  if (!text) return "";
+
+  let cleaned = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // Page headers, dates, brackets, noise symbols
+  cleaned = cleaned.replace(/\bPage\s+\d+\s+(?:of|\/)\s+\d+\b/gi, " ");
+  cleaned = cleaned.replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
+  cleaned = cleaned.replace(/\[\s*\d+\s*\]/g, " ");
+  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u00A9\u00AE\u2122\u2192\u2190\u2191\u2193\u2194\u2195\u2022\u25AA\u25AB\u25E6\u25A0\u25A1\u25C6\u25C7~`^_=]+/g, " ");
+
+  // Repair broken words
+  cleaned = repairBrokenWords(cleaned);
+
+  const lines = cleaned.split(/\r?\n/);
+  const processedLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const lineTokens = trimmed.split(/\s+/).filter((token) => !isLikelyNoiseToken(token));
+    if (lineTokens.length === 0) continue;
+
+    const filtered = lineTokens.join(" ");
+    const letters = (filtered.match(/[A-Za-z]/g) || []).length;
+    if (letters < 3) continue;
+
+    const normalized = normalizeSentenceCase(filtered);
+    processedLines.push(normalized);
+  }
+
+  const stitched = processedLines.map((l) => {
+    let s = l.trim();
+    if (!/[.!?:]$/.test(s)) s += ".";
+    return s;
+  }).join(" ");
+
+  return fixGrammarAndHomophones(stitched);
+};
 
 const getSentences = (text) => {
   if (!text) return [];
@@ -680,21 +772,19 @@ const ocrScannedPDF = async (pdf, setProgress) => {
     const viewport = page.getViewport({ scale: 2 });
 
     const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-
     canvas.width = viewport.width;
     canvas.height = viewport.height;
+    const context = canvas.getContext("2d");
 
     await page.render({
       canvasContext: context,
       viewport
     }).promise;
 
-    // Scanned pages are typically one uniform block of text, so
-    // preprocessing (contrast/binarization) plus PSM.AUTO_ONLY (fully
-    // automatic layout, no OSD) works well here without extra overhead.
     const processedCanvas = preprocessCanvasForOCR(canvas);
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+    if (PSM?.AUTO) {
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+    }
 
     const {
       data: { text }
@@ -722,11 +812,9 @@ const extractTextFromImage = async (file, setProgress) => {
 
   const worker = await createWorker("eng");
 
-  // ID cards, forms, and other photographed documents have text scattered
-  // in blocks around photos/logos rather than one uniform paragraph — the
-  // default PSM (fully automatic layout) tends to misread those non-text
-  // regions. PSM.SPARSE_TEXT is built for exactly this case.
-  await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+  if (PSM?.SPARSE_TEXT) {
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+  }
 
   const {
     data: { text }
@@ -1155,91 +1243,55 @@ function App() {
 
       if (engine === "ai") {
         setProgress(
-          "Connecting to AI Deep Summary Engine..."
+          "Connecting to AI / Node Deep Summary Engine..."
         );
 
-        try {
-          /*
-           * IMPORTANT:
-           * This now calls your deployed FastAPI backend
-           * instead of the old /api/summarize endpoint.
-           */
-          const apiRes = await fetch(
-            "https://document-summary-assistant-ekuy.onrender.com/api/summarize",
-            {
+        let success = false;
+        const endpoints = [
+          "http://localhost:5000/api/summarize",
+          "/api/summarize",
+          "https://document-summary-assistant-ekuy.onrender.com/api/summarize"
+        ];
+
+        for (const url of endpoints) {
+          try {
+            const apiRes = await fetch(url, {
               method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json"
-              },
-
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                text: sourceText.slice(
-                  0,
-                  50000
-                ),
-                length: summaryLength
+                text: sourceText.slice(0, 50000),
+                length: summaryLength,
+                tone: summaryTone
               })
+            });
+
+            if (apiRes.ok) {
+              const data = await apiRes.json();
+              if (data.summary) {
+                finalSummary = data.summary;
+                finalKeyPoints = data.key_points || data.keyPoints || [];
+                if (data.keywords && data.keywords.length) {
+                  finalKeywords = data.keywords;
+                }
+                success = true;
+                break;
+              }
             }
-          );
-
-          if (apiRes.ok) {
-            const data =
-              await apiRes.json();
-
-            finalSummary =
-              data.summary;
-
-            finalKeyPoints =
-              data.key_points || [];
-          } else {
-            console.warn(
-              "AI API unavailable, falling back to instant client engine"
-            );
-
-            showToast(
-              "AI server unavailable — used instant in-browser engine instead",
-              "error"
-            );
-
-            const fallback =
-              createInBrowserSummary(
-                sourceText,
-                summaryLength,
-                summaryTone
-              );
-
-            finalSummary =
-              fallback.summary;
-
-            finalKeyPoints =
-              fallback.keyPoints;
-
-            finalKeywords =
-              fallback.keywords;
+          } catch (err) {
+            // try next endpoint
           }
-        } catch (apiErr) {
-          console.warn(
-            "AI server error, fallback to client engine",
-            apiErr
+        }
+
+        if (!success) {
+          console.warn("Backend servers unavailable, using instant In-Browser NLP engine");
+          const fallback = createInBrowserSummary(
+            sourceText,
+            summaryLength,
+            summaryTone
           );
-
-          const fallback =
-            createInBrowserSummary(
-              sourceText,
-              summaryLength,
-              summaryTone
-            );
-
-          finalSummary =
-            fallback.summary;
-
-          finalKeyPoints =
-            fallback.keyPoints;
-
-          finalKeywords =
-            fallback.keywords;
+          finalSummary = fallback.summary;
+          finalKeyPoints = fallback.keyPoints;
+          finalKeywords = fallback.keywords;
         }
       } else {
         const result =

@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ detail: 'Method not allowed' });
   }
 
-  const { text, length = 'medium' } = req.body || {};
+  const { text, length = 'medium', tone = 'standard' } = req.body || {};
 
   if (!text || !text.trim()) {
     return res.status(400).json({
@@ -19,29 +19,35 @@ export default async function handler(req, res) {
     });
   }
 
-  try {
-    const response = await fetch(
-      'https://document-summary-assistant-ekuy.onrender.com/api/summarize',
-      {
+  const endpoints = [
+    'http://localhost:5000/api/summarize',
+    'https://document-summary-assistant-ekuy.onrender.com/api/summarize'
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           text: text.trim(),
-          length
+          length,
+          tone
         })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return res.status(200).json(data);
       }
-    );
-
-    const data = await response.json();
-
-    return res.status(response.status).json(data);
-  } catch (error) {
-    console.error('Backend API error:', error);
-
-    return res.status(500).json({
-      detail: 'Unable to connect to the summarization backend.'
-    });
+    } catch (error) {
+      // try next
+    }
   }
+
+  return res.status(500).json({
+    detail: 'Unable to connect to the summarization backend.'
+  });
 }

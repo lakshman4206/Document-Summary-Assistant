@@ -205,6 +205,121 @@ def fix_grammar_and_homophones(text: str) -> str:
     return t.strip()
 
 
+PRESERVED_ACRONYMS = {
+    "AI", "ML", "API", "APIS", "UI", "UX", "PDF", "PDFS", "DOC", "DOCX", "PPT", "PPTX",
+    "HTML", "CSS", "JS", "NLP", "LLM", "LLMS", "GPT", "RAG", "GPU", "CPU", "RAM",
+    "USA", "US", "UK", "EU", "UN", "NASA", "WHO", "ISRO", "DRDO", "UPSC", "SSC", "HSC",
+    "CEO", "CTO", "CFO", "COO", "HR", "IT", "ID", "IP", "DNS", "URL", "HTTP", "HTTPS",
+    "SQL", "NOSQL", "AWS", "GCP", "SAAS", "PAAS", "IAAS", "B2B", "B2C", "ROI", "KPI",
+    "IOT", "WIFI", "OCR", "IEEE", "ISO", "COVID", "DNA", "RNA", "IQ", "EQ", "MB", "GB", "TB"
+}
+
+VALID_SHORT_WORDS = {
+    "a", "i", "am", "an", "as", "at", "be", "by", "do", "go", "he", "if", "in", "is",
+    "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us", "we", "ok", "tv",
+    "mr", "ms", "dr", "vs", "re", "ex", "ad", "pm", "am"
+}
+
+
+def is_meaningless_token(token: str) -> bool:
+    """Filter OCR garbage, non-vowel clusters, and symbol noise."""
+    if not token:
+        return True
+    clean = re.sub(r'^[^\w]+|[^\w]+$', '', token)
+    if not clean:
+        return True
+
+    upper_val = clean.upper()
+    lower_val = clean.lower()
+
+    if upper_val in PRESERVED_ACRONYMS:
+        return False
+
+    if len(clean) == 1:
+        return lower_val not in ["a", "i"]
+
+    if len(clean) == 2:
+        return lower_val not in VALID_SHORT_WORDS and upper_val not in PRESERVED_ACRONYMS
+
+    if re.match(r'^[\d,.:;%$\-+/]+$', clean):
+        return False
+
+    letters = len(re.findall(r'[a-zA-Z]', clean))
+    non_letters = len(clean) - letters
+    if non_letters > letters:
+        return True
+
+    # 3+ letters without a vowel is OCR gibberish
+    if letters >= 3 and not re.search(r'[aeiouyAEIOUY]', clean):
+        return upper_val not in PRESERVED_ACRONYMS
+
+    # 5+ consonants in a row
+    if re.search(r'[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}', clean):
+        return upper_val not in PRESERVED_ACRONYMS
+
+    return False
+
+
+def normalize_capitalization(text: str) -> str:
+    """Converts ALL-CAPS/TitleCase to natural sentence case and fixes mid-word capitals."""
+    if not text:
+        return ""
+
+    sentences = re.split(r'(?<=[.!?\n])\s+', text)
+    result_sentences = []
+
+    for sentence in sentences:
+        trimmed = sentence.strip()
+        if not trimmed:
+            continue
+
+        words = trimmed.split()
+        if not words:
+            continue
+
+        all_caps_count = sum(1 for w in words if len(re.findall(r'[A-Za-z]', w)) >= 2 and w == w.upper() and w.upper() not in PRESERVED_ACRONYMS)
+        alpha_count = sum(1 for w in words if len(re.findall(r'[A-Za-z]', w)) >= 2)
+
+        is_all_caps = alpha_count >= 2 and (all_caps_count / alpha_count > 0.5)
+
+        processed = []
+        for idx, w in enumerate(words):
+            m = re.match(r'^([^A-Za-z0-9]*)(.*?)([^A-Za-z0-9]*)$', w)
+            if not m:
+                processed.append(w)
+                continue
+
+            lead, core, trail = m.groups()
+            if not core:
+                processed.append(w)
+                continue
+
+            if core.upper() in PRESERVED_ACRONYMS:
+                processed.append(f"{lead}{core.upper()}{trail}")
+                continue
+
+            clean_core = core
+            if re.search(r'[a-z][A-Z]', clean_core) and not re.match(r'^[A-Z][a-z]+[A-Z]', clean_core):
+                clean_core = clean_core.lower()
+
+            if is_all_caps:
+                if idx == 0:
+                    clean_core = clean_core.capitalize()
+                else:
+                    clean_core = clean_core.upper() if clean_core.upper() in PRESERVED_ACRONYMS else clean_core.lower()
+            else:
+                if idx == 0:
+                    clean_core = clean_core.capitalize()
+
+            processed.append(f"{lead}{clean_core}{trail}")
+
+        res = " ".join(processed)
+        res = re.sub(r'^([a-z])', lambda m: m.group(1).upper(), res)
+        result_sentences.append(res)
+
+    return " ".join(result_sentences)
+
+
 def clean_text_formatting(text: str) -> str:
     """Clean PDF artifacts, OCR glitches, broken line-break hyphenations, and redundant whitespace."""
     if not text:
@@ -213,7 +328,12 @@ def clean_text_formatting(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
     # Fix hyphenated line breaks e.g. "techno- \n logy" -> "technology"
-    text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text)
+    text = re.sub(r'([A-Za-z]{2,})-\s*\n\s*([A-Za-z]{2,})', r'\1\2', text)
+    # Fix broken hyphens inside words: "compu- ter" -> "computer"
+    text = re.sub(r'([A-Za-z]{2,})-\s+([A-Za-z]{2,})', r'\1\2', text)
+
+    # Rejoin spaced letters: "c o m p u t e r" -> "computer"
+    text = re.sub(r'\b([A-Za-z](?:\s+[A-Za-z]){2,})\b', lambda m: m.group(0).replace(" ", "") if len(m.group(0).replace(" ", "")) >= 3 else m.group(0), text)
 
     # Clean OCR noise and boilerplate headers
     text = re.sub(r'Combined Defence Services [A-Za-z]+\s+[A-Za-z]+\s+\([^)]+\)', '', text, flags=re.IGNORECASE)
@@ -238,10 +358,20 @@ def clean_text_formatting(text: str) -> str:
     for pattern, repl in ocr_fixes.items():
         text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
 
-    text = re.sub(r'(?<!\n)\n(?!\n)', ' ', text)
+    lines = text.split("\n")
+    processed_lines = []
+    for line in lines:
+        tokens = [t for t in line.split() if not is_meaningless_token(t)]
+        if tokens:
+            processed_lines.append(" ".join(tokens))
+
+    text = " ".join(processed_lines)
     text = re.sub(r'[\t\f\v\xa0]', ' ', text)
     text = re.sub(r' +', ' ', text)
     text = re.sub(r'\s+([,.:;?!])', r'\1', text)
+
+    text = normalize_capitalization(text)
+    text = fix_grammar_and_homophones(text)
 
     return text.strip()
 
@@ -303,6 +433,7 @@ def correct_spelling(text: str, protected_words: set[str] | None = None) -> str:
             corrected_tokens.append(token)
 
     result = "".join(corrected_tokens)
+    result = normalize_capitalization(result)
     result = fix_grammar_and_homophones(result)
     return result
 
