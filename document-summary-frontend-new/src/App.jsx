@@ -345,7 +345,9 @@ const getSentences = (text) => {
     .filter((s) => {
       const words = s.split(/\s+/).filter(Boolean);
       const letters = (s.match(/[A-Za-z]/g) || []).length;
-      return words.length >= 4 && letters >= 15;
+      // Relaxed threshold so short-document lines (ID cards, forms, brief notes)
+      // are not all filtered out, which would leave zero sentences and no summary.
+      return words.length >= 2 && letters >= 6;
     });
 };
 
@@ -496,7 +498,7 @@ const createInBrowserSummary = (
   length = "medium",
   tone = "standard"
 ) => {
-  const cleaned = cleanExtractedText(text);
+  const cleaned = cleanExtractedText(text) || text?.trim() || "";
 
   if (!cleaned) {
     return {
@@ -702,91 +704,82 @@ const loadFileToCanvas = (file) =>
   });
 
 const extractTextFromPDF = async (file, setProgress) => {
-  const buffer = await file.arrayBuffer();
-  const pdf = await getDocument({ data: buffer }).promise;
+  let pdf;
+  try {
+    const buffer = await file.arrayBuffer();
+    pdf = await getDocument({ data: buffer }).promise;
+  } catch (err) {
+    console.error("PDF.js load error:", err);
+    return { text: "", pdf: null };
+  }
 
   let fullText = "";
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     setProgress(`Parsing PDF page ${pageNumber} of ${pdf.numPages}...`);
 
-    const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1 });
-    const content = await page.getTextContent();
+    try {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
 
-    // PDF.js returns mixed item types (TextItem, MarkedContent, etc)
-    // Only TextItem has `str` — MarkedContent items do not. Guard defensively.
-    const items = content.items
-      .filter((item) => typeof item.str === "string" && item.str.trim() !== "")
-      .map((item) => {
-        const transform = item.transform || [];
-        return {
-          text: item.str,
-          x: transform[4] || 0,
-          y: transform[5] || 0,
-          angle: Math.atan2(transform[1] || 0, transform[0] || 1) * (180 / Math.PI)
-        };
-      })
-      .filter((item) => {
-        if (Math.abs(item.angle) > 45) return false;
-        if (item.y > viewport.height * 0.97) return false;
-        if (item.y < viewport.height * 0.03) return false;
-        return true;
-      });
+      // PDF.js returns mixed item types (TextItem, MarkedContent, etc)
+      // Only TextItem has `str` — guard defensively before accessing.
+      const pageText = (content.items || [])
+        .filter((item) => typeof item.str === "string" && item.str.trim() !== "")
+        .map((item) => item.str)
+        .join(" ");
 
-    items.sort((a, b) => (Math.abs(a.y - b.y) > 4 ? b.y - a.y : a.x - b.x));
-
-    const lines = [];
-    items.forEach((item) => {
-      const last = lines[lines.length - 1];
-      if (last && Math.abs(last.y - item.y) <= 4) {
-        last.items.push(item);
-      } else {
-        lines.push({ y: item.y, items: [item] });
+      if (pageText.trim()) {
+        fullText += pageText + "\n";
       }
-    });
-
-    const pageLines = lines.map((line) =>
-      line.items
-        .sort((a, b) => a.x - b.x)
-        .map((item) => item.text)
-        .join(" ")
-    );
-
-    fullText += pageLines.join("\n") + "\n";
+    } catch (pageErr) {
+      console.warn(`PDF page ${pageNumber} extraction failed:`, pageErr);
+      // Continue to next page instead of crashing
+    }
   }
 
   return { text: fullText, pdf };
 };
 
 const ocrScannedPDF = async (pdf, setProgress) => {
-  const worker = await createWorker("eng");
+  if (!pdf) return "";
+
+  let worker;
+  try {
+    worker = await createWorker("eng");
+  } catch (err) {
+    console.error("Tesseract worker init failed:", err);
+    return "";
+  }
+
   let fullText = "";
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    setProgress(`OCR optical recognition on page ${pageNumber} of ${pdf.numPages}...`);
+    setProgress(`OCR scanning page ${pageNumber} of ${pdf.numPages}...`);
 
-    const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 2 });
+    try {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 2.5 });
 
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const context = canvas.getContext("2d");
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const context = canvas.getContext("2d");
 
-    await page.render({ canvasContext: context, viewport }).promise;
+      await page.render({ canvasContext: context, viewport }).promise;
 
-    const processedCanvas = preprocessCanvasForOCR(canvas);
-    if (PSM?.AUTO) {
-      await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+      const processedCanvas = preprocessCanvasForOCR(canvas);
+      const ocrResult = await worker.recognize(processedCanvas);
+      const pageText = ocrResult?.data?.text || "";
+      if (pageText.trim()) {
+        fullText += pageText + "\n";
+      }
+    } catch (pageErr) {
+      console.warn(`OCR page ${pageNumber} failed:`, pageErr);
     }
-
-    const ocrResult = await worker.recognize(processedCanvas);
-    const pageText = ocrResult?.data?.text || "";
-    fullText += pageText + "\n";
   }
 
-  await worker.terminate();
+  try { await worker.terminate(); } catch (_) {}
   return fullText;
 };
 
