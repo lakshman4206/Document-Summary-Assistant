@@ -700,6 +700,37 @@
   animation: pulse 2s infinite ease-in-out;
 }
 
+.inline-progress-box {
+  margin-top: 20px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.spinner-ring {
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(99, 102, 241, 0.2);
+  border-top-color: var(--primary-light);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.progress-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+
 .progress-spinner {
   width: 24px;
   height: 24px;

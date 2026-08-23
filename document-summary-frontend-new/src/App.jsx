@@ -51,24 +51,24 @@ Despite remarkable breakthroughs, modern AI systems still encounter challenges s
 
 Organizations integrating AI must prioritize ethical oversight, robust validation pipelines, and comprehensive safety benchmarks. The ultimate synergy between human creativity and machine intelligence promises to accelerate scientific research, revolutionize medical diagnostics, and automate routine cognitive workflows across all global industries.`,
 
-  business: `Quarterly Business & Growth Strategy Review (Q3 2026):
+  business: `Quarterly Business & Growth Strategy Review:
 
-Over the past three financial quarters, the enterprise experienced a 34% year-over-year revenue increase ($14.2M total), driven primarily by cloud subscription adoption across European enterprise markets. Customer retention rates reached an all-time high of 94.2%, reflecting improved customer onboarding workflows and enhanced product reliability.
+Over the past three financial quarters, the company experienced a 34% year-over-year revenue increase, driven primarily by strong adoption of cloud subscription offerings and expansion into European enterprise markets. Customer retention rates reached an all-time high of 94.2%, reflecting improved customer onboarding workflows and enhanced product reliability.
 
-Operating expenses increased by 18% due to heightened marketing acquisition costs and substantial investments in server GPU infrastructure. To optimize long-term operational efficiency, leadership has decided to automate routine administrative operations, streamline vendor procurement contracts, and consolidate regional sales hubs.
+However, operating expenses increased by 18% due to heightened marketing acquisition costs and substantial investments in server infrastructure. To optimize long-term operational efficiency, leadership has decided to automate routine administrative operations, streamline vendor procurement contracts, and consolidate regional sales hubs.
 
-Key Strategic Priorities for Fiscal Year 2027:
-1. Accelerate enterprise cloud product features and ISO/SOC2 security certifications.
+Key Strategic Priorities for the upcoming fiscal year:
+1. Accelerate enterprise cloud product features and security certifications.
 2. Reduce customer acquisition costs by 15% through targeted digital channel marketing.
 3. Expand strategic partnerships with leading technology integrators to capture enterprise market share.`,
 
   science: `Breakthrough in Solid-State Battery Energy Density:
 
-Materials scientists have engineered a novel ceramic-polymer hybrid electrolyte capable of sustaining over 1,200 continuous charge-discharge cycles with minimal thermal degradation. Unlike conventional lithium-ion batteries that rely on flammable liquid electrolytes, this solid-state formulation virtually eliminates the risk of thermal runaway while dramatically improving operating safety under extreme temperature variations (-40°C to 85°C).
+Materials scientists have engineered a novel ceramic-polymer hybrid electrolyte capable of sustaining over 1,200 continuous charge-discharge cycles with minimal thermal degradation. Unlike conventional lithium-ion batteries that rely on flammable liquid electrolytes, this solid-state formulation virtually eliminates the risk of thermal runaway while dramatically improving operating safety under extreme temperature variations.
 
-Experimental trials demonstrate an estimated 42% increase in volumetric energy density compared to industry-standard cells. This advancement could enable next-generation electric vehicles to achieve over 600 miles of driving range on a single charge with rapid 15-minute replenishment cycles.
+Experimental trials demonstrate an estimated 42% increase in volumetric energy density compared to industry-standard cells. This technological advancement could enable next-generation electric vehicles to achieve over 600 miles of driving range on a single charge with rapid 15-minute replenishment cycles.
 
-Production scalability remains the primary commercial bottleneck. The research consortium has initiated pilot manufacturing partnerships with global OEMs to refine continuous roll-to-roll sintering techniques, aiming for commercial deployment in consumer electronics and mobility sectors within three years.`
+Production scalability remains the primary commercial bottleneck. The research consortium has initiated pilot manufacturing partnerships to refine continuous roll-to-roll sintering techniques, aiming for commercial deployment in consumer electronics and mobility sectors within three years.`
 };
 
 const tokenize = (text) =>
@@ -110,42 +110,31 @@ export const repairBrokenWords = (text) => {
 
 /**
  * 2. Meaningless / Gibberish Token Filter
- * Only rejects tokens that are clearly OCR scanner artifacts.
- * Very lenient: preserves student IDs, reg numbers, codes, etc.
  */
 export const isLikelyNoiseToken = (token) => {
   if (!token) return true;
   const clean = token.replace(/^[^\w%$#°@.]+|[^\w%$#°@.]+$/g, "");
   if (!clean) return true;
 
-  // Always keep: pure numbers, metrics, currencies, codes with digits
+  // Numbers, IDs, codes, percentages, currencies are always kept
   if (/^[\d,.:;%$\-+#°℃℉xX]+$/.test(clean)) return false;
-  if (/\d/.test(clean)) return false; // any token containing a digit is preserved
+  if (/\d/.test(clean)) return false;
 
-  // Known acronyms always kept
   if (PRESERVED_ACRONYMS.has(clean.toUpperCase())) return false;
 
   const lower = clean.toLowerCase();
-
-  // Single letters: only noise if not 'a' or 'i'
   if (clean.length === 1) return !["a", "i"].includes(lower);
-
-  // Two-letter words: keep known words and acronyms
   if (clean.length === 2) return !VALID_SHORT_WORDS.has(lower) && !/^[A-Z]{2}$/.test(clean);
 
-  // Repetitive garbage: "aaaa", "xxxxx", "-----"
   if (/^(.)\1{4,}$/.test(clean)) return true;
 
-  // Pure symbol noise (no alphanumeric characters)
   const letters = (clean.match(/[a-zA-Z]/g) || []).length;
   if (letters === 0) return true;
 
-  // 3+ letters with no vowels is OCR garbage (unless recognized acronym like PDF, CSS, GPT)
   if (letters >= 3 && !/[aeiouyAEIOUY]/.test(clean) && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
     return true;
   }
 
-  // 5+ consecutive consonants = likely OCR garbage
   if (/[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}/.test(clean) && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
     return true;
   }
@@ -227,7 +216,7 @@ export const normalizeCapitalization = (text) => {
 };
 
 /**
- * 4. Grammar, Homophones, Article Agreement & Polish
+ * 4. Grammar, Homophones & Agreement
  */
 export const fixGrammarAndHomophones = (text) => {
   if (!text) return "";
@@ -249,31 +238,12 @@ export const fixGrammarAndHomophones = (text) => {
     [/\bbetter\s+then\b/gi, "better than"],
     [/\bgreater\s+then\b/gi, "greater than"],
     [/\brather\s+then\b/gi, "rather than"],
-    [/\bearlier\s+then\b/gi, "earlier than"],
-    [/\bhigher\s+then\b/gi, "higher than"],
-    [/\blower\s+then\b/gi, "lower than"],
-    [/\bother\s+then\b/gi, "other than"],
-
     [/\byour\s+(welcome|right|going|able|ready|invited|doing)\b/gi, "you're $1"],
     [/\byou're\s+(name|car|house|file|document|profile|email|data|work)\b/gi, "your $1"],
-
     [/\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy|structure|content|growth)\b/gi, "its $1"],
-
     [/\bthere\s+(names|features|results|findings|skills|roles|efforts)\b/gi, "their $1"],
     [/\btheir\s+(is|are|was|were|will be|can be|has been)\b/gi, "there $1"],
-
-    [/\b(an|the|a|significant|direct|indirect|adverse|positive|negative|profound)\s+affect\b/gi, "$1 effect"],
-    [/\bhave\s+an\s+affect\s+on\b/gi, "have an effect on"],
-
-    [/\bin\s+order\s+to\b/gi, "to"],
-    [/\bdue\s+to\s+the\s+fact\s+that\b/gi, "because"],
-    [/\bat\s+the\s+present\s+time\b/gi, "currently"],
-
-    [/\beveryone\s+are\b/gi, "everyone is"],
-    [/\bsomeone\s+are\b/gi, "someone is"],
-
     [/\b(the|and|in|of|to|is|that|for|with|as)\s+\1\b/gi, "$1"],
-
     [/\s+([,.:;?!])/g, "$1"],
     [/([,.:;?!])([A-Za-z])/g, "$1 $2"],
     [/\s{2,}/g, " "]
@@ -289,18 +259,14 @@ export const fixGrammarAndHomophones = (text) => {
 
 /**
  * 5. Full Document Cleaning Pipeline
- * Lenient: preserves as much content as possible, only strips true OCR noise.
  */
 export const cleanExtractedText = (text) => {
   if (!text || typeof text !== "string") return "";
 
   let cleaned = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  // Remove page stamps, timestamps, bracket references, and heavy symbol lines
   cleaned = cleaned.replace(/\bPage\s+\d+\s+(?:of|\/)?\s*\d*\b/gi, " ");
   cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u2122\u2192\u2190\u2191\u2193~`^=]{3,}/g, " ");
 
-  // Repair broken words first
   cleaned = repairBrokenWords(cleaned);
 
   const lines = cleaned.split(/\r?\n/);
@@ -308,15 +274,12 @@ export const cleanExtractedText = (text) => {
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (trimmed.length < 2) continue;
+    if (!trimmed || trimmed.length < 2) continue;
 
-    // Filter individual tokens — very lenient
     const lineTokens = trimmed.split(/\s+/).filter((token) => !isLikelyNoiseToken(token));
     if (lineTokens.length === 0) continue;
 
     const filtered = lineTokens.join(" ");
-    // Require at least 2 letters total in the line
     const letters = (filtered.match(/[A-Za-z]/g) || []).length;
     if (letters < 2) continue;
 
@@ -324,11 +287,9 @@ export const cleanExtractedText = (text) => {
   }
 
   if (processedLines.length === 0) {
-    // Fallback: if everything got filtered, return the original text lightly cleaned
-    return text.trim().replace(/\s{2,}/g, " ").replace(/[|\u00A6\u00A7]{2,}/g, "");
+    return text.trim().replace(/\s{2,}/g, " ");
   }
 
-  // Join lines with periods to help sentence splitting
   const stitched = processedLines.map((l) => {
     const s = l.trim();
     return /[.!?:]$/.test(s) ? s : s + ".";
@@ -362,126 +323,8 @@ const getSentences = (text) => {
     .filter((s) => {
       const words = s.split(/\s+/).filter(Boolean);
       const letters = (s.match(/[A-Za-z]/g) || []).length;
-      // Relaxed threshold so short-document lines (ID cards, forms, brief notes)
-      // are not all filtered out, which would leave zero sentences and no summary.
       return words.length >= 2 && letters >= 6;
     });
-};
-
-export const restructureDocument = (text) => {
-  const cleaned = cleanExtractedText(text);
-  const sentences = getSentences(cleaned);
-
-  if (sentences.length <= 3) {
-    return cleaned;
-  }
-
-  const paragraphs = [];
-  let currentP = [];
-
-  sentences.forEach((sent, idx) => {
-    currentP.push(sent);
-    if (currentP.length >= 3 || idx === sentences.length - 1) {
-      paragraphs.push(currentP.join(" "));
-      currentP = [];
-    }
-  });
-
-  return paragraphs.join("\n\n");
-};
-
-export const extractEntities = (text) => {
-  if (!text) return { dates: [], metrics: [], properNouns: [], technicalTerms: [] };
-
-  const dates = [];
-  const metrics = [];
-  const properNouns = [];
-  const technicalTerms = [];
-
-  const dateMatches = text.match(/\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\b\d{4}\b)\b/gi) || [];
-  dateMatches.forEach((d) => {
-    const clean = d.trim();
-    if (clean && !dates.includes(clean) && clean.length > 3) dates.push(clean);
-  });
-
-  const metricRegex = /(?:\$\s*\d+(?:\.\d+)?(?:\s*[MBKmbk]|billion|million|thousand)?|\b\d+(?:\.\d+)?%|\b\d+(?:,\d{3})*(?:\.\d+)?\s*(?:miles|km|hours|minutes|mins|cycles|percent|kg|MB|GB|TB|tons|units)\b)/gi;
-  const metricMatches = text.match(metricRegex) || [];
-  metricMatches.forEach((m) => {
-    const clean = m.trim();
-    if (clean && !metrics.includes(clean)) metrics.push(clean);
-  });
-
-  PRESERVED_ACRONYMS.forEach((acronym) => {
-    const regex = new RegExp(`\\b${acronym}\\b`, "i");
-    if (regex.test(text) && !technicalTerms.includes(acronym)) {
-      technicalTerms.push(acronym);
-    }
-  });
-
-  const properMatches = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g) || [];
-  properMatches.forEach((p) => {
-    const clean = p.trim();
-    if (clean && !properNouns.includes(clean) && clean.length > 5 && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
-      properNouns.push(clean);
-    }
-  });
-
-  return {
-    dates: dates.slice(0, 6),
-    metrics: metrics.slice(0, 6),
-    properNouns: properNouns.slice(0, 6),
-    technicalTerms: technicalTerms.slice(0, 6)
-  };
-};
-
-export const calculateReadability = (text) => {
-  if (!text) return { fleschScore: 70, gradeLevel: "Standard", complexity: "Moderate" };
-
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const sentences = getSentences(text);
-  const wordCount = words.length || 1;
-  const sentenceCount = sentences.length || 1;
-
-  let syllableCount = 0;
-  words.forEach((w) => {
-    const clean = w.toLowerCase().replace(/[^a-z]/g, "");
-    if (clean.length <= 3) {
-      syllableCount += 1;
-    } else {
-      const matches = clean.match(/[aeiouy]{1,2}/g);
-      syllableCount += matches ? matches.length : 1;
-    }
-  });
-
-  const score = Math.round(
-    206.835 - 1.015 * (wordCount / sentenceCount) - 84.6 * (syllableCount / wordCount)
-  );
-  const clampedScore = Math.max(0, Math.min(100, score));
-
-  let gradeLevel = "Standard";
-  let complexity = "Balanced";
-
-  if (clampedScore >= 80) {
-    gradeLevel = "Clear & Simple (6th Grade)";
-    complexity = "High Clarity";
-  } else if (clampedScore >= 60) {
-    gradeLevel = "Standard (8th-10th Grade)";
-    complexity = "Optimal Reading Pace";
-  } else if (clampedScore >= 45) {
-    gradeLevel = "Technical (College Level)";
-    complexity = "Dense / Analytical";
-  } else {
-    gradeLevel = "Advanced Academic";
-    complexity = "High Complexity";
-  }
-
-  return {
-    fleschScore: clampedScore,
-    gradeLevel,
-    complexity,
-    syllablesPerWord: (syllableCount / wordCount).toFixed(1),
-    avgSentenceLength: Math.round(wordCount / sentenceCount)
-  };
 };
 
 const sentenceSimilarity = (first, second) => {
@@ -515,7 +358,6 @@ const createInBrowserSummary = (
   length = "medium",
   tone = "standard"
 ) => {
-  // Try cleaned version; fall back to raw text if cleaning emptied everything
   let cleaned = cleanExtractedText(text);
   if (!cleaned || cleaned.trim().length < 20) {
     cleaned = text?.trim() || "";
@@ -525,22 +367,12 @@ const createInBrowserSummary = (
     return {
       summary: "",
       keyPoints: [],
-      keywords: [],
-      restructuredDocument: "",
-      entities: { dates: [], metrics: [], properNouns: [], technicalTerms: [] },
-      readability: { fleschScore: 70, gradeLevel: "Standard", complexity: "Balanced" }
+      keywords: []
     };
   }
 
-  const restructuredDocument = restructureDocument(text);
-  const entities = extractEntities(cleaned);
-  const readability = calculateReadability(cleaned);
-
-  // Try proper sentence splitting first
   let sentences = getSentences(cleaned);
 
-  // If no sentences detected (e.g. ID card with field labels only),
-  // split by periods or newlines as fallback segments
   if (!sentences.length) {
     sentences = cleaned
       .split(/[.!?\n]+/)
@@ -548,16 +380,21 @@ const createInBrowserSummary = (
       .filter((s) => s.length >= 8 && (s.match(/[A-Za-z]/g) || []).length >= 4);
   }
 
-  // Final fallback: use the whole cleaned text as one summary block
   if (!sentences.length) {
-    const fallbackSummary = cleaned.slice(0, 800).trim();
+    const fallback = cleaned.slice(0, 800).trim();
     return {
-      summary: fallbackSummary,
+      summary: fallback,
       keyPoints: cleaned.split(".").filter((s) => s.trim().length > 5).slice(0, 4).map((s) => s.trim()),
-      keywords: extractKeywords(cleaned),
-      restructuredDocument,
-      entities,
-      readability
+      keywords: extractKeywords(cleaned)
+    };
+  }
+
+  if (sentences.length <= 2) {
+    const sText = sentences.join(" ");
+    return {
+      summary: sText,
+      keyPoints: sentences,
+      keywords: extractKeywords(cleaned)
     };
   }
 
@@ -646,10 +483,7 @@ const createInBrowserSummary = (
   return {
     summary,
     keyPoints: keyPoints.map((kp) => fixGrammarAndHomophones(kp)),
-    keywords: extractKeywords(cleaned, 6),
-    restructuredDocument,
-    entities,
-    readability
+    keywords: extractKeywords(cleaned, 6)
   };
 };
 
@@ -713,7 +547,8 @@ const loadFileToCanvas = (file) =>
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
-      canvas.getContext("2d").drawImage(img, 0, 0);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
       URL.revokeObjectURL(img.src);
       resolve(canvas);
     };
@@ -743,8 +578,6 @@ const extractTextFromPDF = async (file, setProgress) => {
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
 
-      // PDF.js returns mixed item types (TextItem, MarkedContent, etc)
-      // Only TextItem has `str` — guard defensively before accessing.
       const pageText = (content.items || [])
         .filter((item) => typeof item.str === "string" && item.str.trim() !== "")
         .map((item) => item.str)
@@ -755,7 +588,6 @@ const extractTextFromPDF = async (file, setProgress) => {
       }
     } catch (pageErr) {
       console.warn(`PDF page ${pageNumber} extraction failed:`, pageErr);
-      // Continue to next page instead of crashing
     }
   }
 
@@ -789,7 +621,6 @@ const ocrScannedPDF = async (pdf, setProgress) => {
 
       await page.render({ canvasContext: context, viewport }).promise;
 
-      // Pass 1: Try with high-contrast Otsu preprocessing
       let pageText = "";
       try {
         const processedCanvas = preprocessCanvasForOCR(canvas);
@@ -799,7 +630,6 @@ const ocrScannedPDF = async (pdf, setProgress) => {
         console.warn("Preprocessed OCR pass failed:", e);
       }
 
-      // Pass 2: Fallback to raw canvas if preprocessed was empty or low-yield
       if (!pageText || pageText.trim().length < 15) {
         try {
           const rawOcrResult = await worker.recognize(canvas);
@@ -825,7 +655,7 @@ const ocrScannedPDF = async (pdf, setProgress) => {
 };
 
 const extractTextFromImage = async (file, setProgress) => {
-  setProgress("Preparing image for deep-scan OCR (Otsu adaptive contrast)...");
+  setProgress("Preparing image for high-accuracy OCR...");
 
   let worker;
   try {
@@ -841,20 +671,18 @@ const extractTextFromImage = async (file, setProgress) => {
   const rawCanvas = await loadFileToCanvas(file);
   let text = "";
 
-  // Pass 1: Try with preprocessed high-contrast canvas
   try {
     const processedCanvas = preprocessCanvasForOCR(rawCanvas);
-    setProgress("Scanning high-contrast image with Tesseract neural OCR...");
+    setProgress("Scanning image with Tesseract OCR engine...");
     const ocrResult = await worker.recognize(processedCanvas);
     text = ocrResult?.data?.text || "";
   } catch (e) {
     console.warn("Preprocessed image OCR failed:", e);
   }
 
-  // Pass 2: Fallback to raw original canvas if preprocessed yielded little text
   if (!text || text.trim().length < 15) {
     try {
-      setProgress("Performing second high-density optical pass...");
+      setProgress("Running high-density optical scan pass...");
       const rawOcrResult = await worker.recognize(rawCanvas);
       const rawText = rawOcrResult?.data?.text || "";
       if (rawText.trim().length > text.trim().length) {
@@ -919,22 +747,14 @@ function App() {
   const [summaryLength, setSummaryLength] = useState("medium");
   const [summaryTone, setSummaryTone] = useState("standard");
 
-  // Multi-view result tabs: 'summary' | 'restructured' | 'diff' | 'intelligence'
-  const [resultTab, setResultTab] = useState("summary");
-
   const [summary, setSummary] = useState("");
   const [keyPoints, setKeyPoints] = useState([]);
   const [keywords, setKeywords] = useState([]);
-  const [restructuredDocument, setRestructuredDocument] = useState("");
-  const [entities, setEntities] = useState({ dates: [], metrics: [], properNouns: [], technicalTerms: [] });
-  const [readability, setReadability] = useState(null);
 
-  const [rawExtractedText, setRawExtractedText] = useState("");
   const [isDragging, setIsDragging] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
-  const [scanPhase, setScanPhase] = useState(0); // 1 to 5 for deep-scan telemetry
   const [error, setError] = useState("");
   const [metrics, setMetrics] = useState(null);
 
@@ -1036,19 +856,12 @@ function App() {
     }
 
     setLoading(true);
-    setScanPhase(1);
     setSummary("");
     setKeyPoints([]);
     setKeywords([]);
-    setRestructuredDocument("");
-    setEntities({ dates: [], metrics: [], properNouns: [], technicalTerms: [] });
-    setReadability(null);
-    setRawExtractedText("");
 
     try {
-      // Phase 1: Ingestion & Geometry
-      setScanPhase(1);
-      setProgress("Phase 1/5: Ingestion & Resolution Calibration (Otsu Adaptive Binarization)...");
+      setProgress("Ingesting document and analyzing structure...");
 
       if (activeTab === "upload") {
         const ext = file.name.split(".").pop().toLowerCase();
@@ -1057,11 +870,9 @@ function App() {
           const result = await extractTextFromPDF(file, setProgress);
           sourceText = result?.text || "";
 
-          // If extracted text from PDF text stream is sparse, try OCR
           const cleanedPreview = cleanExtractedText(sourceText);
           if (!cleanedPreview || cleanedPreview.trim().length < 30) {
-            setScanPhase(2);
-            setProgress("Phase 2/5: Scanned content detected. High-density neural OCR pass...");
+            setProgress("Scanned content detected. Performing OCR optical scan...");
             if (result?.pdf) {
               const ocrText = await ocrScannedPDF(result.pdf, setProgress);
               if (ocrText && ocrText.trim().length > sourceText.trim().length) {
@@ -1070,7 +881,6 @@ function App() {
             }
           }
         } else if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
-          setScanPhase(2);
           sourceText = await extractTextFromImage(file, setProgress);
         } else if (ext === "docx") {
           sourceText = await extractTextFromWord(file, setProgress);
@@ -1081,38 +891,19 @@ function App() {
         }
       }
 
-      // Guaranteed fallback: If binary image or document yielded minimal text, create structured metadata
       if (!sourceText || !sourceText.trim()) {
-        sourceText = `Document: ${file?.name || "Uploaded Document"}\nFile Type: ${file?.type || "Scanned Binary"}\nStatus: Visual layout analysis and deep-scan OCR completed successfully.`;
+        sourceText = `Document: ${file?.name || "Uploaded Document"}\nStatus: Visual layout analysis completed.`;
       }
 
-      setRawExtractedText(sourceText);
-
-      // Phase 3: De-noising, Broken Word Repair & De-hyphenation
-      setScanPhase(3);
-      setProgress("Phase 3/5: Scan Artifact De-Noising, Broken Word Repair & De-Hyphenation...");
-      await new Promise((r) => setTimeout(r, 450));
-
-      // Phase 4: True-Casing Normalization & Entity Protection
-      setScanPhase(4);
-      setProgress("Phase 4/5: True-Casing Normalization & Entity/Metric Protection...");
-      await new Promise((r) => setTimeout(r, 450));
-
-      // Phase 5: Semantic Restructuring & Executive Synthesis
-      setScanPhase(5);
-      setProgress("Phase 5/5: Semantic Restructuring, Readability Indexing & Executive Synthesis...");
+      setProgress("Synthesizing executive summary and key points...");
 
       let finalSummary = "";
       let finalKeyPoints = [];
       let finalKeywords = [];
-      let finalRestructured = "";
-      let finalEntities = { dates: [], metrics: [], properNouns: [], technicalTerms: [] };
-      let finalReadability = null;
 
       if (engine === "ai") {
         let success = false;
         const endpoints = [
-          "http://localhost:5000/api/deep-scan",
           "http://localhost:5000/api/summarize",
           "/api/summarize",
           "https://document-summary-assistant-ekuy.onrender.com/api/summarize"
@@ -1136,9 +927,6 @@ function App() {
                 finalSummary = data.summary;
                 finalKeyPoints = data.key_points || data.keyPoints || [];
                 finalKeywords = data.keywords || extractKeywords(sourceText, 6);
-                finalRestructured = data.restructured_document || restructureDocument(sourceText);
-                finalEntities = data.entities || extractEntities(sourceText);
-                finalReadability = data.readability || calculateReadability(sourceText);
                 success = true;
                 break;
               }
@@ -1153,18 +941,12 @@ function App() {
           finalSummary = fallback.summary;
           finalKeyPoints = fallback.keyPoints;
           finalKeywords = fallback.keywords;
-          finalRestructured = fallback.restructuredDocument;
-          finalEntities = fallback.entities;
-          finalReadability = fallback.readability;
         }
       } else {
         const result = createInBrowserSummary(sourceText, summaryLength, summaryTone);
         finalSummary = result.summary;
         finalKeyPoints = result.keyPoints;
         finalKeywords = result.keywords;
-        finalRestructured = result.restructuredDocument;
-        finalEntities = result.entities;
-        finalReadability = result.readability;
       }
 
       if (!finalSummary) {
@@ -1174,9 +956,6 @@ function App() {
       setSummary(finalSummary);
       setKeyPoints(finalKeyPoints);
       setKeywords(finalKeywords);
-      setRestructuredDocument(finalRestructured);
-      setEntities(finalEntities);
-      setReadability(finalReadability);
 
       const computed = computeMetrics(sourceText, finalSummary);
       setMetrics(computed);
@@ -1192,7 +971,7 @@ function App() {
       };
 
       setHistory((prev) => [historyItem, ...prev.slice(0, 14)]);
-      showToast("Deep-Scan & Synthesis Complete ✨");
+      showToast("Summary Generated Successfully ✨");
     } catch (err) {
       console.error(err);
       setError(err.message || "Failed to process the document.");
@@ -1200,7 +979,6 @@ function App() {
     } finally {
       setLoading(false);
       setProgress("");
-      setScanPhase(0);
     }
   };
 
@@ -1214,7 +992,7 @@ function App() {
     if (!summary) return;
     const docTitle = activeTab === "upload" ? file?.name || "Document" : "Text-Analysis";
     const content = `=====================================================
-DOCUMENT SUMMARY ASSISTANT • DEEP SCAN REPORT
+DOCUMENT SUMMARY ASSISTANT • SUMMARY REPORT
 Document: ${docTitle}
 Generated: ${new Date().toLocaleString()}
 Compression: ${metrics?.reductionPercent || 0}% reduction
@@ -1228,35 +1006,28 @@ ${summary}
 -----------------------------------------------------
 ${keyPoints.map((pt, i) => `${i + 1}. ${pt}`).join("\n\n")}
 
-3. KEY TOPICS & ENTITIES:
+3. KEY TOPICS:
 -----------------------------------------------------
-Topics: ${keywords.join(", ")}
-Dates: ${entities.dates.join(", ") || "N/A"}
-Metrics: ${entities.metrics.join(", ") || "N/A"}
-
-4. FULL RESTRUCTURED DOCUMENT:
------------------------------------------------------
-${restructuredDocument}
+${keywords.join(", ")}
 `;
 
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${docTitle.replace(/\.[^/.]+$/, "")}-deepscan.txt`;
+    a.download = `${docTitle.replace(/\.[^/.]+$/, "")}-summary.txt`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast("Downloaded .txt report");
+    showToast("Downloaded .txt summary");
   };
 
   const exportMD = () => {
     if (!summary) return;
     const docTitle = activeTab === "upload" ? file?.name || "Document" : "Text-Analysis";
-    const content = `# Document Deep-Scan Intelligence: ${docTitle}
+    const content = `# Document Summary: ${docTitle}
 
 > **Generated with Document Summary Assistant** • ${new Date().toLocaleDateString()}
-> **Stats**: ${metrics?.originalWords || 0} words reduced to ${metrics?.summaryWords || 0} words (${metrics?.reductionPercent || 0}% compression)
-> **Readability**: ${readability?.gradeLevel || "Standard"} (Flesch Score: ${readability?.fleschScore || 70}/100)
+> **Compression**: ${metrics?.reductionPercent || 0}% reduction (${metrics?.originalWords || 0} → ${metrics?.summaryWords || 0} words)
 
 ---
 
@@ -1265,30 +1036,23 @@ ${summary}
 
 ---
 
-## 🎯 Key Takeaways & Facts
+## 🎯 Key Takeaways
 ${keyPoints.map((pt) => `- ${pt}`).join("\n")}
 
 ---
 
-## 🏷️ Extracted Intelligence
-- **Topic Tags**: ${keywords.map((k) => `\`${k}\``).join(" ")}
-- **Key Metrics & Figures**: ${entities.metrics.map((m) => `\`${m}\``).join(" ") || "None"}
-- **Important Dates**: ${entities.dates.map((d) => `\`${d}\``).join(" ") || "None"}
-
----
-
-## 📝 Full Restructured & Restored Document
-${restructuredDocument}
+## 🏷️ Key Topics
+${keywords.map((k) => `\`#${k}\``).join(" ")}
 `;
 
     const blob = new Blob([content], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${docTitle.replace(/\.[^/.]+$/, "")}-intelligence.md`;
+    a.download = `${docTitle.replace(/\.[^/.]+$/, "")}-summary.md`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast("Downloaded .md Markdown report");
+    showToast("Downloaded .md summary");
   };
 
   const toggleSpeech = () => {
@@ -1358,9 +1122,6 @@ ${restructuredDocument}
             </div>
             <div>
               <span className="brand-title">Document Summary Assistant</span>
-              <span className="brand-badge" style={{ marginLeft: "8px" }}>
-                Deep-Scan v2.0
-              </span>
             </div>
           </div>
 
@@ -1390,7 +1151,7 @@ ${restructuredDocument}
       <header className="hero-section">
         <div className="hero-pill">
           <span className="hero-pill-dot"></span>
-          Deep-Scan Neural OCR & Document Intelligence Suite
+          Intelligent Document & Image Summarizer
         </div>
 
         <h1 className="hero-title">
@@ -1398,12 +1159,12 @@ ${restructuredDocument}
         </h1>
 
         <p className="hero-subtitle">
-          Upload any document or image for high-density OCR extraction, scan artifact de-noising,
-          true-casing normalization, entity preservation, and executive synthesis.
+          Instantly extract, clean, and summarize PDF documents, scanned images, Word docs,
+          presentations, and pasted text with high accuracy.
         </p>
 
         <div className="supported-tags">
-          <span className="tag-badge">📕 Scanned PDF & Text</span>
+          <span className="tag-badge">📕 PDF & Scanned Docs</span>
           <span className="tag-badge">🖼️ PNG / JPG / WEBP OCR</span>
           <span className="tag-badge">📝 Word DOCX</span>
           <span className="tag-badge">📊 PowerPoint PPTX</span>
@@ -1482,7 +1243,7 @@ ${restructuredDocument}
                       <div className="file-preview-meta">
                         <strong>{file.name}</strong>
                         <span>
-                          {(file.size / 1024 / 1024).toFixed(2)} MB • Ready for deep-scan analysis
+                          {(file.size / 1024 / 1024).toFixed(2)} MB • Ready for summarization
                         </span>
                       </div>
                     </div>
@@ -1559,7 +1320,7 @@ ${restructuredDocument}
                     className={`engine-chip ${engine === "client" ? "active" : ""}`}
                     onClick={() => setEngine("client")}
                   >
-                    <strong>⚡ In-Browser Deep Scan</strong>
+                    <strong>⚡ In-Browser Fast Engine</strong>
                     <span>Private & Instant OCR</span>
                   </div>
 
@@ -1574,40 +1335,10 @@ ${restructuredDocument}
               </div>
             </div>
 
-            {loading && (
-              <div className="deep-scan-modal-overlay">
-                <div className="deep-scan-box">
-                  <div className="scanline-glow"></div>
-                  <div className="scan-header">
-                    <div className="scan-radar-icon">📡</div>
-                    <div>
-                      <h3 className="scan-title">Deep-Scan Neural Reader in Progress</h3>
-                      <p className="scan-subtitle">{progress}</p>
-                    </div>
-                  </div>
-
-                  <div className="scan-stages-track">
-                    {[
-                      { step: 1, name: "Geometry & Upscale" },
-                      { step: 2, name: "Neural OCR Pass" },
-                      { step: 3, name: "De-Noise & De-Hyphen" },
-                      { step: 4, name: "True-Casing & Entities" },
-                      { step: 5, name: "Semantic Restructuring" }
-                    ].map((st) => (
-                      <div
-                        key={st.step}
-                        className={`scan-step-item ${
-                          scanPhase > st.step ? "done" : scanPhase === st.step ? "active" : ""
-                        }`}
-                      >
-                        <div className="scan-step-dot">
-                          {scanPhase > st.step ? "✓" : st.step}
-                        </div>
-                        <span className="scan-step-label">{st.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            {loading && progress && (
+              <div className="inline-progress-box">
+                <div className="spinner-ring"></div>
+                <span className="progress-text">{progress}</span>
               </div>
             )}
 
@@ -1619,7 +1350,7 @@ ${restructuredDocument}
                 onClick={handleGenerate}
                 disabled={loading || (activeTab === "upload" && !file) || (activeTab === "text" && !inputText.trim())}
               >
-                {loading ? "⏳ Deep-Scanning Document..." : "🔍 Run Deep-Scan & Restore Document"}
+                {loading ? "⏳ Analyzing Document..." : "✨ Generate Summary"}
               </button>
             </div>
           </section>
@@ -1658,341 +1389,130 @@ ${restructuredDocument}
                 </div>
               )}
 
-              {/* View Selector Tabs */}
-              <div className="view-selector-bar">
-                <button
-                  className={`view-tab-btn ${resultTab === "summary" ? "active" : ""}`}
-                  onClick={() => setResultTab("summary")}
-                >
-                  📌 Executive Summary
-                </button>
-                <button
-                  className={`view-tab-btn ${resultTab === "restructured" ? "active" : ""}`}
-                  onClick={() => setResultTab("restructured")}
-                >
-                  📝 Restructured Document
-                </button>
-                <button
-                  className={`view-tab-btn ${resultTab === "diff" ? "active" : ""}`}
-                  onClick={() => setResultTab("diff")}
-                >
-                  🔍 Raw vs Cleaned Diff
-                </button>
-                <button
-                  className={`view-tab-btn ${resultTab === "intelligence" ? "active" : ""}`}
-                  onClick={() => setResultTab("intelligence")}
-                >
-                  📊 Entities & Intelligence
-                </button>
+              <div className="audio-player-card">
+                <div className="audio-left">
+                  <button className="btn-audio-play" onClick={toggleSpeech} title="Listen to Summary">
+                    {isPlayingAudio ? "⏸" : "🔊"}
+                  </button>
+
+                  <div className="audio-status-group">
+                    <strong>
+                      {isPlayingAudio ? "Playing Audio Narration..." : "Text-to-Speech Player"}
+                    </strong>
+                    <span>
+                      {isPlayingAudio ? "Click to pause speech" : "Listen to this summary aloud"}
+                    </span>
+                  </div>
+
+                  {isPlayingAudio && (
+                    <div className="audio-wave">
+                      <div className="audio-bar"></div>
+                      <div className="audio-bar"></div>
+                      <div className="audio-bar"></div>
+                      <div className="audio-bar"></div>
+                      <div className="audio-bar"></div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="audio-speed-group">
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>
+                    SPEED:
+                  </span>
+                  {[0.75, 1, 1.25, 1.5].map((speed) => (
+                    <button
+                      key={speed}
+                      className={`speed-chip ${speechRate === speed ? "active" : ""}`}
+                      onClick={() => changeSpeechSpeed(speed)}
+                    >
+                      {speed}x
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {resultTab === "summary" && (
-                <>
-                  <div className="audio-player-card">
-                    <div className="audio-left">
-                      <button className="btn-audio-play" onClick={toggleSpeech} title="Listen to Summary">
-                        {isPlayingAudio ? "⏸" : "🔊"}
-                      </button>
-
-                      <div className="audio-status-group">
-                        <strong>
-                          {isPlayingAudio ? "Playing Audio Narration..." : "Text-to-Speech Player"}
-                        </strong>
-                        <span>
-                          {isPlayingAudio ? "Click to pause speech" : "Listen to this summary aloud"}
-                        </span>
-                      </div>
-
-                      {isPlayingAudio && (
-                        <div className="audio-wave">
-                          <div className="audio-bar"></div>
-                          <div className="audio-bar"></div>
-                          <div className="audio-bar"></div>
-                          <div className="audio-bar"></div>
-                          <div className="audio-bar"></div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="audio-speed-group">
-                      <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>
-                        SPEED:
-                      </span>
-                      {[0.75, 1, 1.25, 1.5].map((speed) => (
-                        <button
-                          key={speed}
-                          className={`speed-chip ${speechRate === speed ? "active" : ""}`}
-                          onClick={() => changeSpeechSpeed(speed)}
-                        >
-                          {speed}x
-                        </button>
-                      ))}
+              <section className="glass-card">
+                <div className="card-header-row">
+                  <div className="card-title-group">
+                    <span className="card-icon">📌</span>
+                    <div>
+                      <h2 className="card-title">Executive Summary</h2>
+                      <span className="card-subtitle">Synthesized core narrative & findings</span>
                     </div>
                   </div>
 
-                  <section className="glass-card">
-                    <div className="card-header-row">
-                      <div className="card-title-group">
-                        <span className="card-icon">📌</span>
-                        <div>
-                          <h2 className="card-title">Executive Summary</h2>
-                          <span className="card-subtitle">Synthesized core narrative & findings</span>
-                        </div>
-                      </div>
-
-                      <div className="result-toolbar">
-                        <div className="result-btn-group">
-                          <button className="action-btn" onClick={() => handleCopy(summary, "Summary")}>
-                            📋 Copy
-                          </button>
-                          <button className="action-btn" onClick={exportTXT}>
-                            ⬇ .txt
-                          </button>
-                          <button className="action-btn" onClick={exportMD}>
-                            📝 .md
-                          </button>
-                          <button className="action-btn" onClick={() => window.print()}>
-                            🖨️ Print
-                          </button>
-                        </div>
-                      </div>
+                  <div className="result-toolbar">
+                    <div className="result-btn-group">
+                      <button className="action-btn" onClick={() => handleCopy(summary, "Summary")}>
+                        📋 Copy
+                      </button>
+                      <button className="action-btn" onClick={exportTXT}>
+                        ⬇ .txt
+                      </button>
+                      <button className="action-btn" onClick={exportMD}>
+                        📝 .md
+                      </button>
+                      <button className="action-btn" onClick={() => window.print()}>
+                        🖨️ Print
+                      </button>
                     </div>
+                  </div>
+                </div>
 
-                    <div className="summary-body">{summary}</div>
+                <div className="summary-body">{summary}</div>
 
-                    {keywords.length > 0 && (
-                      <div className="topics-row">
-                        <span className="topic-label">Key Topics:</span>
-                        {keywords.map((tag, i) => (
-                          <span key={i} className="topic-tag">
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </section>
+                {keywords.length > 0 && (
+                  <div className="topics-row">
+                    <span className="topic-label">Key Topics:</span>
+                    {keywords.map((tag, i) => (
+                      <span key={i} className="topic-tag">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
 
-                  {keyPoints.length > 0 && (
-                    <section className="glass-card">
-                      <div className="card-header-row">
-                        <div className="card-title-group">
-                          <span className="card-icon">🎯</span>
-                          <div>
-                            <h2 className="card-title">Key Takeaways & Core Facts</h2>
-                            <span className="card-subtitle">Critical decisions, metrics, and outcomes</span>
-                          </div>
-                        </div>
-
-                        <button
-                          className="action-btn"
-                          onClick={() =>
-                            handleCopy(
-                              keyPoints.map((pt, i) => `${i + 1}. ${pt}`).join("\n\n"),
-                              "Key Points"
-                            )
-                          }
-                        >
-                          📋 Copy All Points
-                        </button>
-                      </div>
-
-                      <div className="keypoints-list">
-                        {keyPoints.map((point, index) => (
-                          <div key={index} className="keypoint-item">
-                            <span className="keypoint-index">{index + 1}</span>
-                            <p className="keypoint-text">{point}</p>
-                            <button
-                              className="keypoint-copy"
-                              title="Copy this point"
-                              onClick={() => handleCopy(point, `Point ${index + 1}`)}
-                            >
-                              📋
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                </>
-              )}
-
-              {resultTab === "restructured" && (
+              {keyPoints.length > 0 && (
                 <section className="glass-card">
                   <div className="card-header-row">
                     <div className="card-title-group">
-                      <span className="card-icon">📝</span>
+                      <span className="card-icon">🎯</span>
                       <div>
-                        <h2 className="card-title">Restructured Full Document</h2>
-                        <span className="card-subtitle">
-                          100% factual accuracy, zero OCR noise, proper capitalization & fluid flow
-                        </span>
+                        <h2 className="card-title">Key Takeaways & Core Facts</h2>
+                        <span className="card-subtitle">Critical points, metrics, and outcomes</span>
                       </div>
                     </div>
 
-                    <div className="result-btn-group">
-                      <button className="action-btn" onClick={() => handleCopy(restructuredDocument, "Full Document")}>
-                        📋 Copy Restructured Text
-                      </button>
-                      <button className="action-btn" onClick={exportMD}>
-                        📝 Export Markdown
-                      </button>
-                    </div>
+                    <button
+                      className="action-btn"
+                      onClick={() =>
+                        handleCopy(
+                          keyPoints.map((pt, i) => `${i + 1}. ${pt}`).join("\n\n"),
+                          "Key Points"
+                        )
+                      }
+                    >
+                      📋 Copy All Points
+                    </button>
                   </div>
 
-                  <div className="restructured-body">
-                    {restructuredDocument.split("\n\n").map((para, idx) => (
-                      <p key={idx} className="restructured-paragraph">
-                        {para}
-                      </p>
+                  <div className="keypoints-list">
+                    {keyPoints.map((point, index) => (
+                      <div key={index} className="keypoint-item">
+                        <span className="keypoint-index">{index + 1}</span>
+                        <p className="keypoint-text">{point}</p>
+                        <button
+                          className="keypoint-copy"
+                          title="Copy this point"
+                          onClick={() => handleCopy(point, `Point ${index + 1}`)}
+                        >
+                          📋
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </section>
-              )}
-
-              {resultTab === "diff" && (
-                <section className="glass-card">
-                  <div className="card-header-row">
-                    <div className="card-title-group">
-                      <span className="card-icon">🔍</span>
-                      <div>
-                        <h2 className="card-title">Raw Extraction vs Restructured Diff</h2>
-                        <span className="card-subtitle">
-                          Compare the raw scanned OCR artifact against the clean, restored output
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="diff-grid">
-                    <div className="diff-pane raw-pane">
-                      <div className="diff-pane-header">
-                        <strong>Raw Unprocessed Extraction</strong>
-                        <span>Contains OCR artifacts & broken line breaks</span>
-                      </div>
-                      <div className="diff-pane-content">{rawExtractedText || "No raw text available"}</div>
-                    </div>
-
-                    <div className="diff-pane clean-pane">
-                      <div className="diff-pane-header">
-                        <strong>Cleaned & Restructured Document</strong>
-                        <span>Normalized casing, de-hyphenated & grammatically polished</span>
-                      </div>
-                      <div className="diff-pane-content">{restructuredDocument || summary}</div>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {resultTab === "intelligence" && (
-                <div className="intelligence-grid">
-                  <section className="glass-card">
-                    <div className="card-header-row">
-                      <div className="card-title-group">
-                        <span className="card-icon">📊</span>
-                        <div>
-                          <h2 className="card-title">Document Readability & Depth</h2>
-                          <span className="card-subtitle">Flesch-Kincaid & structural analytics</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="analytics-chips-grid">
-                      <div className="analytic-box">
-                        <span className="analytic-label">Flesch Reading Ease</span>
-                        <strong className="analytic-score">{readability?.fleschScore || 70} / 100</strong>
-                        <span className="analytic-sub">{readability?.complexity || "Balanced Pace"}</span>
-                      </div>
-
-                      <div className="analytic-box">
-                        <span className="analytic-label">Target Reading Level</span>
-                        <strong className="analytic-score" style={{ fontSize: "16px", color: "var(--accent-cyan)" }}>
-                          {readability?.gradeLevel || "Standard"}
-                        </strong>
-                        <span className="analytic-sub">Optimal audience comprehension</span>
-                      </div>
-
-                      <div className="analytic-box">
-                        <span className="analytic-label">Avg Sentence Length</span>
-                        <strong className="analytic-score">{readability?.avgSentenceLength || 18} words</strong>
-                        <span className="analytic-sub">{readability?.syllablesPerWord || 1.6} syllables/word</span>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="glass-card">
-                    <div className="card-header-row">
-                      <div className="card-title-group">
-                        <span className="card-icon">🏷️</span>
-                        <div>
-                          <h2 className="card-title">Extracted Entities & Key Figures</h2>
-                          <span className="card-subtitle">Protected facts, numbers, dates & technical terms</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="entities-block">
-                      <div className="entity-group">
-                        <strong>📈 Key Metrics & Figures:</strong>
-                        <div className="entity-tags-row">
-                          {entities.metrics.length > 0 ? (
-                            entities.metrics.map((m, i) => (
-                              <span key={i} className="entity-badge metric">
-                                {m}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="entity-empty">No numerical figures detected</span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="entity-group">
-                        <strong>📅 Important Dates:</strong>
-                        <div className="entity-tags-row">
-                          {entities.dates.length > 0 ? (
-                            entities.dates.map((d, i) => (
-                              <span key={i} className="entity-badge date">
-                                {d}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="entity-empty">No date stamps detected</span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="entity-group">
-                        <strong>⚙️ Technical Acronyms:</strong>
-                        <div className="entity-tags-row">
-                          {entities.technicalTerms.length > 0 ? (
-                            entities.technicalTerms.map((t, i) => (
-                              <span key={i} className="entity-badge tech">
-                                {t}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="entity-empty">No technical acronyms detected</span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="entity-group">
-                        <strong>🏢 Named Entities & Proper Nouns:</strong>
-                        <div className="entity-tags-row">
-                          {entities.properNouns.length > 0 ? (
-                            entities.properNouns.map((p, i) => (
-                              <span key={i} className="entity-badge noun">
-                                {p}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="entity-empty">No proper nouns detected</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                </div>
               )}
             </div>
           )}
@@ -2050,7 +1570,7 @@ ${restructuredDocument}
 
       <footer className="app-footer">
         <div className="footer-inner">
-          <div className="footer-brand">Document Summary Assistant • Deep-Scan Suite</div>
+          <div className="footer-brand">Document Summary Assistant</div>
           <p className="footer-developer">
             Engineered with modern Web & NLP technologies by <strong>Lakshmana Murthy</strong>
           </p>
@@ -2066,7 +1586,7 @@ ${restructuredDocument}
           </div>
 
           <div className="footer-copy">
-            © 2026 Document Summary Assistant. High-density OCR, Neural De-noising & Document Restoration.
+            © 2026 Document Summary Assistant. High-density OCR & intelligent summarization.
           </div>
         </div>
       </footer>
