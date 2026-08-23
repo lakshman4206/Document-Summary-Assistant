@@ -937,42 +937,38 @@ function App() {
       let finalKeywords = [];
 
       if (engine === "ai") {
-        let success = false;
-        const endpoints = [
-          "http://localhost:5000/api/summarize",
-          "/api/summarize",
-          "https://document-summary-assistant-ekuy.onrender.com/api/summarize"
-        ];
-
-        for (const url of endpoints) {
-          try {
-            const apiRes = await fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                text: sourceText.slice(0, 50000),
-                length: summaryLength,
-                tone: summaryTone
-              })
-            });
-
-            if (apiRes.ok) {
-              const data = await apiRes.json();
-              if (data.summary) {
-                finalSummary = data.summary;
-                finalKeyPoints = data.key_points || data.keyPoints || [];
-                finalTakeaways = data.takeaways || data.key_points?.slice(0, 3) || [];
-                finalKeywords = data.keywords || extractKeywords(sourceText, 6);
-                success = true;
-                break;
-              }
+        // Fast path: call Vercel serverless NLP function with a 5-second hard timeout.
+        // No localhost (always fails on Vercel) and no slow Render cold-start.
+        let apiSuccess = false;
+        try {
+          const ctrl = new AbortController();
+          const timeoutId = setTimeout(() => ctrl.abort(), 5000);
+          const apiRes = await fetch("/api/summarize", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: ctrl.signal,
+            body: JSON.stringify({
+              text: sourceText.slice(0, 50000),
+              length: summaryLength,
+              tone: summaryTone
+            })
+          });
+          clearTimeout(timeoutId);
+          if (apiRes.ok) {
+            const data = await apiRes.json();
+            if (data?.summary) {
+              finalSummary = data.summary;
+              finalKeyPoints = data.key_points || data.keyPoints || [];
+              finalTakeaways = data.takeaways || data.key_points?.slice(0, 3) || [];
+              finalKeywords = data.keywords || extractKeywords(sourceText, 6);
+              apiSuccess = true;
             }
-          } catch (err) {
-            // try next endpoint
           }
+        } catch (_) {
+          // timeout or network error — fall through to in-browser NLP
         }
 
-        if (!success) {
+        if (!apiSuccess) {
           const fallback = createInBrowserSummary(sourceText, summaryLength, summaryTone);
           finalSummary = fallback.summary;
           finalKeyPoints = fallback.keyPoints;
