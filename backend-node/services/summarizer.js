@@ -1,4 +1,11 @@
-import { splitSentences, fixGrammarAndHomophones, cleanDocumentText } from "./cleaner.js";
+import {
+  splitSentences,
+  fixGrammarAndHomophones,
+  cleanDocumentText,
+  restructureFullDocument,
+  extractEntitiesAndMetrics,
+  analyzeDocumentReadability
+} from "./cleaner.js";
 
 const STOP_WORDS = new Set([
   "about", "above", "after", "again", "against", "also", "although", "among", "because",
@@ -77,15 +84,22 @@ export function computeMetrics(originalText, summaryText) {
 }
 
 /**
- * High-performance Extractive NLP Summarization Engine
+ * High-performance Extractive NLP Summarization & Document Restoration Engine
  */
 export function summarizeText(text, length = "medium", tone = "standard") {
   const cleaned = cleanDocumentText(text);
+  const restructuredDocument = restructureFullDocument(text);
+  const entities = extractEntitiesAndMetrics(cleaned);
+  const readability = analyzeDocumentReadability(cleaned);
+
   if (!cleaned) {
     return {
       summary: "",
       key_points: [],
       keywords: [],
+      restructured_document: "",
+      entities,
+      readability,
       metrics: computeMetrics("", "")
     };
   }
@@ -97,6 +111,9 @@ export function summarizeText(text, length = "medium", tone = "standard") {
       summary: sText,
       key_points: sentences.length > 0 ? sentences : [cleaned],
       keywords: extractKeywords(cleaned, 6),
+      restructured_document: restructuredDocument,
+      entities,
+      readability,
       metrics: computeMetrics(cleaned, sText)
     };
   }
@@ -116,15 +133,12 @@ export function summarizeText(text, length = "medium", tone = "standard") {
       score += (wordScore / words.length) * 2.2;
     }
 
-    // Positional importance
     if (index === 0) score += 1.5;
     if (index === 1) score += 0.8;
     if (index === sentences.length - 1) score += 1.2;
 
-    // Pattern matching
     if (IMPORTANT_PATTERNS.some((p) => p.test(sentence))) score += 1.3;
 
-    // Sentence length suitability
     const wc = sentence.split(/\s+/).length;
     if (wc >= 10 && wc <= 35) score += 0.6;
     if (wc > 50) score -= 0.4;
@@ -161,7 +175,6 @@ export function summarizeText(text, length = "medium", tone = "standard") {
     if (selected.length >= summaryTarget) break;
   }
 
-  // Restore chronological reading order
   selected.sort((a, b) => a.index - b.index);
 
   let summary = selected.map((item) => item.text).join(" ");
@@ -171,11 +184,10 @@ export function summarizeText(text, length = "medium", tone = "standard") {
     summary = selected.map((item) => `• ${item.text}`).join("\n\n");
   }
 
-  // Generate distinct key takeaways
   const keyPoints = [];
   for (const candidate of ranked) {
     const isDup = keyPoints.some(
-      (existing) => sentenceSimilarity(candidate.text, existing) > 0.42
+      (existing) => sentenceSimilarity(candidate.text, existing.text) > 0.42
     );
     if (!isDup) keyPoints.push(candidate.text);
     if (keyPoints.length >= keyPointTarget) break;
@@ -188,6 +200,9 @@ export function summarizeText(text, length = "medium", tone = "standard") {
     summary,
     key_points: keyPoints.map((kp) => fixGrammarAndHomophones(kp)),
     keywords,
+    restructured_document: restructuredDocument,
+    entities,
+    readability,
     metrics
   };
 }

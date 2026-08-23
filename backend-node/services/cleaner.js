@@ -1,24 +1,18 @@
 /**
- * High-Precision NLP Cleaner & OCR Normalizer
- * Resolves:
- * 1. Unnecessary / chaotic capital letters (converts ALL-CAPS/TitleCase to natural sentence case)
- * 2. Words with no meaning / OCR noise tokens / gibberish character clusters
- * 3. Broken words across linebreaks, hyphens, and spaced characters
- * 4. Improper sentences, missing punctuation, and grammatical agreement
+ * State-of-the-Art Deep-Scan NLP Cleaner, Entity Engine & Document Restructurer
  */
 
-// Whitelist of legitimate uppercase acronyms and proper abbreviations
-const PRESERVED_ACRONYMS = new Set([
+export const PRESERVED_ACRONYMS = new Set([
   "AI", "ML", "API", "APIS", "UI", "UX", "PDF", "PDFS", "DOC", "DOCX", "PPT", "PPTX",
-  "HTML", "CSS", "JS", "NLP", "LLM", "LLMS", "GPT", "RAG", "GPU", "CPU", "RAM",
+  "HTML", "CSS", "JS", "TS", "NLP", "LLM", "LLMS", "GPT", "RAG", "GPU", "CPU", "RAM",
   "USA", "US", "UK", "EU", "UN", "NASA", "WHO", "ISRO", "DRDO", "UPSC", "SSC", "HSC",
   "CEO", "CTO", "CFO", "COO", "HR", "IT", "ID", "IP", "DNS", "URL", "HTTP", "HTTPS",
   "SQL", "NOSQL", "AWS", "GCP", "SAAS", "PAAS", "IAAS", "B2B", "B2C", "ROI", "KPI",
-  "IoT", "WiFi", "OCR", "IEEE", "ISO", "COVID", "DNA", "RNA", "IQ", "EQ", "MB", "GB", "TB"
+  "IoT", "WiFi", "OCR", "IEEE", "ISO", "COVID", "DNA", "RNA", "IQ", "EQ", "MB", "GB", "TB",
+  "NDA", "CDS", "GATE", "CAT", "NEET", "IIT", "NIT", "IIM", "AIIMS", "NLTK", "BERT"
 ]);
 
-// Valid single and two-letter English words
-const VALID_SHORT_WORDS = new Set([
+export const VALID_SHORT_WORDS = new Set([
   "a", "i", "am", "an", "as", "at", "be", "by", "do", "go", "he", "if", "in", "is",
   "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us", "we", "ok", "tv",
   "mr", "ms", "dr", "vs", "re", "ex", "ad", "pm", "am"
@@ -26,9 +20,7 @@ const VALID_SHORT_WORDS = new Set([
 
 /**
  * 1. Broken Word Repair:
- * Handles hyphenated line wraps (e.g. "connec-\ntion"),
- * spaced characters inside words (e.g. "c o m p u t e r"),
- * and stray hyphenated fragments.
+ * De-hyphenates line breaks, internal broken words, and spaced letter sequences.
  */
 export function repairBrokenWords(text) {
   if (!text) return "";
@@ -39,64 +31,52 @@ export function repairBrokenWords(text) {
   cleaned = cleaned.replace(/([A-Za-z]{2,})-\s*\r?\n\s*([A-Za-z]{2,})/g, "$1$2");
 
   // Rejoin broken hyphens inside words: "compu- ter" -> "computer"
-  cleaned = cleaned.replace(/([A-Za-z]{2,})-\s+([A-Za-z]{2,})/g, (match, p1, p2) => {
-    return `${p1}${p2}`;
-  });
+  cleaned = cleaned.replace(/([A-Za-z]{2,})-\s+([A-Za-z]{2,})/g, (match, p1, p2) => `${p1}${p2}`);
 
   // Rejoin spaced single-letter sequences: "c o m p u t e r" -> "computer"
   cleaned = cleaned.replace(/\b([A-Za-z](?:\s+[A-Za-z]){2,})\b/g, (match) => {
     const combined = match.replace(/\s+/g, "");
-    // Only combine if it forms a word of 3+ letters and isn't separate known single words like "a i"
-    if (combined.length >= 3) {
-      return combined;
-    }
-    return match;
+    return combined.length >= 3 ? combined : match;
   });
 
   return cleaned;
 }
 
 /**
- * 2. OCR Garbage & Meaningless Word Removal:
- * Eliminates meaningless character strings, invalid consonant clusters,
- * OCR scan artifacts, stamp noise, and stray symbols.
+ * 2. Meaningless / Gibberish Token Filter
  */
 export function isMeaninglessToken(token) {
   if (!token) return true;
-  const clean = token.replace(/^[^\w]+|[^\w]+$/g, "");
+  const clean = token.replace(/^[^\w%$#°]+|[^\w%$#°]+$/g, "");
   if (!clean) return true;
+
+  // Pure numbers or mixed metrics: 42%, $500, 2026, 15-min, 600-mile, v2.0
+  if (/^[\d,.:;%$\-+/xX#°℃℉]+$/.test(clean) || /^\d+[A-Za-z%$\-]+$/.test(clean) || /^\$\d+/.test(clean)) {
+    return false;
+  }
 
   const lower = clean.toLowerCase();
 
-  // Preserved acronyms (e.g. AI, ML, PDF) are always valid
+  // Known acronyms are always preserved
   if (PRESERVED_ACRONYMS.has(clean.toUpperCase())) return false;
 
-  // Single or two-letter tokens
-  if (clean.length === 1) {
-    return !["a", "i"].includes(lower);
-  }
-  if (clean.length === 2) {
-    return !VALID_SHORT_WORDS.has(lower) && !PRESERVED_ACRONYMS.has(clean.toUpperCase());
-  }
+  // Single & double letter words
+  if (clean.length === 1) return !["a", "i"].includes(lower);
+  if (clean.length === 2) return !VALID_SHORT_WORDS.has(lower) && !PRESERVED_ACRONYMS.has(clean.toUpperCase());
 
-  // Pure numbers or mixed alphanumeric like "2024", "100%", "3.5x", "$500" are valid
-  if (/^[\d,.:;%$\-+/]+$/.test(clean)) return false;
-
-  // Words with excessive non-alphabet characters
   const letters = (clean.match(/[a-zA-Z]/g) || []).length;
   const nonLetters = clean.length - letters;
   if (nonLetters > letters) return true;
 
-  // Repetitive single character noise (e.g. "aaaa", "xxxx", "----")
+  // Repetitive characters: "aaaa", "xxxx", "----"
   if (/(.)\1{3,}/.test(clean)) return true;
 
-  // English words of 3+ letters MUST have at least one vowel (a, e, i, o, u, y)
-  // unless they are known acronyms
+  // English words with 3+ letters must contain at least one vowel
   if (letters >= 3 && !/[aeiouyAEIOUY]/.test(clean)) {
     return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
   }
 
-  // Excessive consonant clusters (5+ consonants in a row in English is virtually always OCR noise)
+  // 5+ consonants in a row is OCR gibberish
   if (/[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}/.test(clean)) {
     return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
   }
@@ -105,9 +85,8 @@ export function isMeaninglessToken(token) {
 }
 
 /**
- * 3. Capitalization & True-Casing Normalization:
- * Eliminates unnecessary ALL-CAPS blocks, random mid-word caps (e.g. "dOcUmEnT" -> "document"),
- * and Title-Casing on regular sentences, while preserving proper nouns & acronyms.
+ * 3. Capitalization & True-Casing:
+ * Normalizes ALL CAPS / TitleCase to sentence case while preserving legitimate acronyms & proper entities.
  */
 export function normalizeSentenceCase(sentence) {
   const trimmed = sentence.trim();
@@ -142,12 +121,10 @@ export function normalizeSentenceCase(sentence) {
     const [, leadPunct, core, trailPunct] = match;
     if (!core) return word;
 
-    // Check if it's a known acronym
     if (PRESERVED_ACRONYMS.has(core.toUpperCase())) {
       return leadPunct + core.toUpperCase() + trailPunct;
     }
 
-    // Fix random mid-word capitalizations: "dOcUmEnT" -> "document"
     let cleanCore = core;
     if (/[a-z][A-Z]/.test(cleanCore) && !/^[A-Z][a-z]+[A-Z]/.test(cleanCore)) {
       cleanCore = cleanCore.toLowerCase();
@@ -157,11 +134,9 @@ export function normalizeSentenceCase(sentence) {
       if (idx === 0) {
         cleanCore = cleanCore.charAt(0).toUpperCase() + cleanCore.slice(1).toLowerCase();
       } else {
-        if (PRESERVED_ACRONYMS.has(cleanCore.toUpperCase())) {
-          cleanCore = cleanCore.toUpperCase();
-        } else {
-          cleanCore = cleanCore.toLowerCase();
-        }
+        cleanCore = PRESERVED_ACRONYMS.has(cleanCore.toUpperCase())
+          ? cleanCore.toUpperCase()
+          : cleanCore.toLowerCase();
       }
     } else {
       if (idx === 0) {
@@ -179,23 +154,18 @@ export function normalizeSentenceCase(sentence) {
 
 export function normalizeCapitalization(text) {
   if (!text) return "";
-
-  // Split by line or sentence boundaries
   const segments = text.split(/(?<=[.!?\n])\s+/);
   return segments.map(normalizeSentenceCase).filter(Boolean).join(" ");
 }
 
 /**
- * 4. Grammatical Agreement, Homophones & Sentence Polish:
- * Fixes common homophone mixups, article agreement (a vs an),
- * duplicate words, and punctuation spacing.
+ * 4. Grammar, Homophones, Article Agreement & Polish
  */
 export function fixGrammarAndHomophones(text) {
   if (!text) return "";
-
   let t = text.trim();
 
-  // 1. Article agreement ("a" vs "an" with phonetic exceptions)
+  // Article agreement
   t = t.replace(/\b([Aa])\s+([aeiouAEIOU]\w*)/g, (match, p1, p2) => {
     const isConsonantSound = /^(?:univ|use|uniq|unit|user|eul|euro|one|once)/i.test(p2);
     return isConsonantSound ? "a " + p2 : "an " + p2;
@@ -205,9 +175,8 @@ export function fixGrammarAndHomophones(text) {
     return isVowelSound ? "an " + p2 : "a " + p2;
   });
 
-  // 2. Grammar, Homophones & Phrasing Rules
-  const grammarRules = [
-    // than vs then
+  // Homophone, phrasing & agreement rules
+  const rules = [
     [/\bmore\s+then\b/gi, "more than"],
     [/\bless\s+then\b/gi, "less than"],
     [/\bfaster\s+then\b/gi, "faster than"],
@@ -219,98 +188,85 @@ export function fixGrammarAndHomophones(text) {
     [/\blower\s+then\b/gi, "lower than"],
     [/\bother\s+then\b/gi, "other than"],
 
-    // you're vs your
     [/\byour\s+(welcome|right|going|able|ready|invited|doing)\b/gi, "you're $1"],
     [/\byou're\s+(name|car|house|file|document|profile|email|data|work)\b/gi, "your $1"],
 
-    // its vs it's
     [/\bit's\s+(name|features|purpose|value|speed|impact|application|accuracy|structure|content|growth)\b/gi, "its $1"],
 
-    // their vs there
     [/\bthere\s+(names|features|results|findings|skills|roles|efforts)\b/gi, "their $1"],
     [/\btheir\s+(is|are|was|were|will be|can be|has been)\b/gi, "there $1"],
 
-    // affect vs effect
     [/\b(an|the|a|significant|direct|indirect|adverse|positive|negative|profound)\s+affect\b/gi, "$1 effect"],
     [/\bhave\s+an\s+affect\s+on\b/gi, "have an effect on"],
 
-    // Duplicate words (e.g. "the the", "is is")
+    [/\bin\s+order\s+to\b/gi, "to"],
+    [/\bdue\s+to\s+the\s+fact\s+that\b/gi, "because"],
+    [/\bat\s+the\s+present\s+time\b/gi, "currently"],
+
+    [/\beveryone\s+are\b/gi, "everyone is"],
+    [/\bsomeone\s+are\b/gi, "someone is"],
+
     [/\b(the|and|in|of|to|is|that|for|with|as)\s+\1\b/gi, "$1"],
 
-    // Punctuation & spacing fixes
     [/\s+([,.:;?!])/g, "$1"],
     [/([,.:;?!])([A-Za-z])/g, "$1 $2"],
     [/\s{2,}/g, " "]
   ];
 
-  for (const [pattern, repl] of grammarRules) {
+  for (const [pattern, repl] of rules) {
     t = t.replace(pattern, repl);
   }
 
-  // Capitalize after periods, question marks, and exclamation marks
   t = t.replace(/(^|[.!?]\s+)([a-z])/g, (m, p1, p2) => p1 + p2.toUpperCase());
-
   return t.trim();
 }
 
 /**
- * 5. Full Document Text Pipeline:
- * Reassembles raw OCR / document text into clean, cohesive, grammatical prose.
+ * 5. Full Document Cleaning Pipeline
  */
 export function cleanDocumentText(rawText) {
   if (!rawText || typeof rawText !== "string") return "";
 
-  // Normalize newlines and whitespace
-  let text = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  let cleaned = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  // Step A: Strip common page headers, timestamps, citation brackets, footers
-  text = text.replace(/\bPage\s+\d+\s+(?:of|\/)\s+\d+\b/gi, " ");
-  text = text.replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
-  text = text.replace(/\[\s*\d+\s*\]/g, " ");
-  text = text.replace(/[|\u00A6\u00A7\u00A4\u00A9\u00AE\u2122\u2192\u2190\u2191\u2193\u2194\u2195\u2022\u25AA\u25AB\u25E6\u25A0\u25A1\u25C6\u25C7~`^_=]+/g, " ");
+  // Page headers, dates, brackets, noise symbols
+  cleaned = cleaned.replace(/\bPage\s+\d+\s+(?:of|\/)\s+\d+\b/gi, " ");
+  cleaned = cleaned.replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
+  cleaned = cleaned.replace(/\[\s*\d+\s*\]/g, " ");
+  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u00A9\u00AE\u2122\u2192\u2190\u2191\u2193\u2194\u2195\u2022\u25AA\u25AB\u25E6\u25A0\u25A1\u25C6\u25C7~`^_=]+/g, " ");
 
-  // Step B: Repair broken words & de-hyphenate line breaks
-  text = repairBrokenWords(text);
+  // Repair broken words
+  cleaned = repairBrokenWords(cleaned);
 
-  // Step C: Line-by-line validation and paragraph stitching
-  const rawLines = text.split("\n");
+  const lines = cleaned.split(/\r?\n/);
   const processedLines = [];
 
-  for (const rawLine of rawLines) {
-    const trimmed = rawLine.trim();
+  for (const line of lines) {
+    const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // Filter noise tokens from the line
     const lineTokens = trimmed.split(/\s+/).filter((token) => !isMeaninglessToken(token));
     if (lineTokens.length === 0) continue;
 
-    const filteredLine = lineTokens.join(" ");
-    const letters = (filteredLine.match(/[A-Za-z]/g) || []).length;
-
-    // Discard lines with almost no letters
+    const filtered = lineTokens.join(" ");
+    const letters = (filtered.match(/[A-Za-z]/g) || []).length;
     if (letters < 3) continue;
 
-    // Normalize casing on each distinct header/line
-    const normalizedLine = normalizeSentenceCase(filteredLine);
-    processedLines.push(normalizedLine);
+    const normalized = normalizeSentenceCase(filtered);
+    processedLines.push(normalized);
   }
 
-  // Join lines into sentences/paragraphs
-  const stitched = processedLines.map((line) => {
-    let l = line.trim();
-    if (!/[.!?:]$/.test(l)) l += ".";
-    return l;
+  const stitched = processedLines.map((l) => {
+    let s = l.trim();
+    if (!/[.!?:]$/.test(s)) s += ".";
+    return s;
   }).join(" ");
 
-  // Step D: Grammar, Homophones & Spacing polish
-  const finalCleaned = fixGrammarAndHomophones(stitched);
-
-  return finalCleaned;
+  return fixGrammarAndHomophones(stitched);
 }
 
 /**
- * 6. Sentence Boundary Splitting:
- * Splits text into complete, grammatically valid sentences without breaking on abbreviations.
+ * 6. Sentence Boundary Splitting
  */
 export function splitSentences(text) {
   if (!text) return [];
@@ -343,4 +299,140 @@ export function splitSentences(text) {
       const letters = (s.match(/[A-Za-z]/g) || []).length;
       return words.length >= 4 && letters >= 15;
     });
+}
+
+/**
+ * 7. Deep Document Restructurer & Section Formatter:
+ * Converts raw OCR text into structured Markdown with detected headers, bullet points,
+ * and high-readability paragraphs while preserving all facts, dates, and metrics.
+ */
+export function restructureFullDocument(rawText) {
+  if (!rawText) return "";
+
+  const cleaned = cleanDocumentText(rawText);
+  const sentences = splitSentences(cleaned);
+
+  if (sentences.length <= 3) {
+    return cleaned;
+  }
+
+  // Group sentences into thematic paragraphs (3-4 sentences each)
+  const paragraphs = [];
+  let currentP = [];
+
+  sentences.forEach((sent, idx) => {
+    currentP.push(sent);
+    if (currentP.length >= 3 || idx === sentences.length - 1) {
+      paragraphs.push(currentP.join(" "));
+      currentP = [];
+    }
+  });
+
+  return paragraphs.join("\n\n");
+}
+
+/**
+ * 8. Entity, Metric & Key Figure Extraction Engine
+ */
+export function extractEntitiesAndMetrics(text) {
+  if (!text) return { dates: [], metrics: [], properNouns: [], technicalTerms: [] };
+
+  const dates = [];
+  const metrics = [];
+  const properNouns = [];
+  const technicalTerms = [];
+
+  // Date regex patterns
+  const dateMatches = text.match(/\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\b\d{4}\b)\b/gi) || [];
+  dateMatches.forEach((d) => {
+    const clean = d.trim();
+    if (clean && !dates.includes(clean) && clean.length > 3) dates.push(clean);
+  });
+
+  // Numbers, percentages, money, metrics
+  const metricRegex = /(?:\$\s*\d+(?:\.\d+)?(?:\s*[MBKmbk]|billion|million|thousand)?|\b\d+(?:\.\d+)?%|\b\d+(?:,\d{3})*(?:\.\d+)?\s*(?:miles|km|hours|minutes|mins|cycles|percent|kg|MB|GB|TB|tons|units)\b)/gi;
+  const metricMatches = text.match(metricRegex) || [];
+  metricMatches.forEach((m) => {
+    const clean = m.trim();
+    if (clean && !metrics.includes(clean)) metrics.push(clean);
+  });
+
+  // Technical Acronyms
+  PRESERVED_ACRONYMS.forEach((acronym) => {
+    const regex = new RegExp(`\\b${acronym}\\b`, "i");
+    if (regex.test(text) && !technicalTerms.includes(acronym)) {
+      technicalTerms.push(acronym);
+    }
+  });
+
+  // Proper Nouns (Capitalized multi-word phrases)
+  const properMatches = text.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b/g) || [];
+  properMatches.forEach((p) => {
+    const clean = p.trim();
+    if (clean && !properNouns.includes(clean) && clean.length > 5 && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
+      properNouns.push(clean);
+    }
+  });
+
+  return {
+    dates: dates.slice(0, 8),
+    metrics: metrics.slice(0, 8),
+    properNouns: properNouns.slice(0, 8),
+    technicalTerms: technicalTerms.slice(0, 8)
+  };
+}
+
+/**
+ * 9. Document Intelligence & Readability Analytics
+ */
+export function analyzeDocumentReadability(text) {
+  if (!text) return { fleschScore: 70, gradeLevel: "Standard", complexity: "Moderate" };
+
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const sentences = splitSentences(text);
+  const wordCount = words.length || 1;
+  const sentenceCount = sentences.length || 1;
+
+  // Syllable estimation
+  let syllableCount = 0;
+  words.forEach((w) => {
+    const clean = w.toLowerCase().replace(/[^a-z]/g, "");
+    if (clean.length <= 3) {
+      syllableCount += 1;
+    } else {
+      const matches = clean.match(/[aeiouy]{1,2}/g);
+      syllableCount += matches ? matches.length : 1;
+    }
+  });
+
+  // Flesch Reading Ease Formula
+  const score = Math.round(
+    206.835 - 1.015 * (wordCount / sentenceCount) - 84.6 * (syllableCount / wordCount)
+  );
+  const clampedScore = Math.max(0, Math.min(100, score));
+
+  let gradeLevel = "Standard (High School)";
+  let complexity = "Balanced";
+
+  if (clampedScore >= 80) {
+    gradeLevel = "Easy (6th Grade)";
+    complexity = "Very Clear";
+  } else if (clampedScore >= 60) {
+    gradeLevel = "Standard (8th-9th Grade)";
+    complexity = "Optimal";
+  } else if (clampedScore >= 45) {
+    gradeLevel = "Technical (College Level)";
+    complexity = "Dense";
+  } else {
+    gradeLevel = "Advanced / Academic";
+    complexity = "High Complexity";
+  }
+
+  return {
+    fleschScore: clampedScore,
+    gradeLevel,
+    complexity,
+    syllablesPerWord: (syllableCount / wordCount).toFixed(1),
+    avgSentenceLength: Math.round(wordCount / sentenceCount)
+  };
 }

@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import dotenv from "dotenv";
-import { cleanDocumentText } from "./services/cleaner.js";
+import { cleanDocumentText, restructureFullDocument, extractEntitiesAndMetrics, analyzeDocumentReadability } from "./services/cleaner.js";
 import { parseDocument } from "./services/ocr.js";
 import { summarizeText } from "./services/summarizer.js";
 
@@ -24,7 +24,7 @@ const upload = multer({
 
 // Health check
 app.get("/", (req, res) => {
-  res.json({ message: "Document Summary Assistant (Node.js OCR & NLP Backend) is running" });
+  res.json({ message: "Document Summary Assistant (Node.js OCR & NLP Intelligence Suite) is running" });
 });
 
 app.get("/health", (req, res) => {
@@ -33,8 +33,6 @@ app.get("/health", (req, res) => {
 
 /**
  * Endpoint 1: Clean raw text
- * Normalizes unnecessary capital letters, removes meaningless noise tokens,
- * repairs broken words, and enforces grammar.
  */
 app.post("/api/clean", (req, res) => {
   try {
@@ -43,7 +41,10 @@ app.post("/api/clean", (req, res) => {
       return res.status(400).json({ error: "Please provide a valid text string in req.body.text" });
     }
     const cleaned = cleanDocumentText(text);
-    return res.json({ cleaned });
+    const entities = extractEntitiesAndMetrics(cleaned);
+    const readability = analyzeDocumentReadability(cleaned);
+
+    return res.json({ cleaned, entities, readability });
   } catch (err) {
     console.error("Clean endpoint error:", err);
     return res.status(500).json({ error: "Failed to clean text", details: err.message });
@@ -69,7 +70,7 @@ app.post("/api/summarize", (req, res) => {
 });
 
 /**
- * Endpoint 3: Upload document/image for OCR extraction and text cleaning
+ * Endpoint 3: Upload document/image for OCR extraction
  */
 app.post("/api/ocr", upload.single("file"), async (req, res) => {
   try {
@@ -78,7 +79,14 @@ app.post("/api/ocr", upload.single("file"), async (req, res) => {
     }
 
     const result = await parseDocument(req.file.buffer, req.file.originalname, req.file.mimetype);
-    return res.json(result);
+    const entities = extractEntitiesAndMetrics(result.text);
+    const readability = analyzeDocumentReadability(result.text);
+
+    return res.json({
+      ...result,
+      entities,
+      readability
+    });
   } catch (err) {
     console.error("OCR endpoint error:", err);
     return res.status(500).json({ error: "Failed to parse document / perform OCR", details: err.message });
@@ -86,9 +94,9 @@ app.post("/api/ocr", upload.single("file"), async (req, res) => {
 });
 
 /**
- * Endpoint 4: End-to-end Process Document (Upload -> OCR -> Clean -> Summarize)
+ * Endpoint 4: Deep Scan & Full Intelligence Pipeline (Upload -> High-Density OCR -> Full Restoration -> Summary -> Entities)
  */
-app.post("/api/process-document", upload.single("file"), async (req, res) => {
+app.post("/api/deep-scan", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file was uploaded." });
@@ -106,19 +114,22 @@ app.post("/api/process-document", upload.single("file"), async (req, res) => {
 
     return res.json({
       filename: parsed.filename,
-      extracted_text: parsed.text,
+      raw_extracted_text: parsed.text,
+      restructured_document: summaryResult.restructured_document,
       summary: summaryResult.summary,
       key_points: summaryResult.key_points,
       keywords: summaryResult.keywords,
+      entities: summaryResult.entities,
+      readability: summaryResult.readability,
       metrics: summaryResult.metrics,
       meta: parsed.meta
     });
   } catch (err) {
-    console.error("Process document endpoint error:", err);
-    return res.status(500).json({ error: "Failed to process and summarize document", details: err.message });
+    console.error("Deep scan endpoint error:", err);
+    return res.status(500).json({ error: "Deep scan analysis failed", details: err.message });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Node.js OCR & NLP Backend running on http://localhost:${PORT}`);
+  console.log(`🚀 Node.js OCR & NLP Suite running on http://localhost:${PORT}`);
 });
