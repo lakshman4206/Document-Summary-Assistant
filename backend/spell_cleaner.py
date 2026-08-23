@@ -6,7 +6,54 @@ from spellchecker import SpellChecker
 # Initialize spell checker
 spell = SpellChecker()
 
-# Comprehensive Domain & Proper Noun Lexicon
+# --- Optional spaCy NER support -------------------------------------------
+# Detects real proper nouns (people, cities, organizations) dynamically so
+# we don't have to hand-maintain an ever-growing hardcoded word list.
+# Import is guarded: if spacy or the model isn't installed in this
+# environment, the app degrades gracefully to the old dictionary-only
+# behavior instead of crashing on startup (the same mistake that broke the
+# ftfy deploy earlier — a missing optional dependency should never take
+# the whole service down).
+try:
+    import spacy
+    _NLP = spacy.load("en_core_web_sm")
+    SPACY_AVAILABLE = True
+except Exception as _spacy_err:
+    _NLP = None
+    SPACY_AVAILABLE = False
+    print(f"[Warning] spaCy NER unavailable, falling back to dictionary-only mode: {_spacy_err}")
+
+_NER_LABELS = {"PERSON", "GPE", "ORG", "NORP", "FAC", "LOC"}
+
+
+def get_protected_entities(text: str) -> set[str]:
+    """
+    Returns lowercase words that spaCy recognizes as real names, cities,
+    organizations, etc. These should never be "corrected" by the
+    spellchecker, no matter how unfamiliar they look. Returns an empty
+    set (never raises) if spaCy isn't available or text is too short.
+    """
+    if not SPACY_AVAILABLE or not text or len(text) < 3:
+        return set()
+
+    try:
+        doc = _NLP(text[:20000])  # cap length to keep this fast
+        protected = set()
+        for ent in doc.ents:
+            if ent.label_ in _NER_LABELS:
+                for w in re.findall(r"[A-Za-z']+", ent.text):
+                    protected.add(w.lower())
+        return protected
+    except Exception as err:
+        print(f"[Warning] spaCy NER extraction failed: {err}")
+        return set()
+
+
+# Comprehensive Domain & Proper Noun Lexicon.
+# This still matters even with spaCy enabled: spaCy occasionally misses
+# short/ambiguous domain terms (e.g. "SSC", "NDA") that aren't grammatically
+# recognizable as entities. Kept as a fast first-pass check and as the
+# fallback whenever spaCy is unavailable.
 CUSTOM_DICTIONARY = {
     # Tech & Computing
     "ai", "ml", "api", "apis", "dataset", "datasets", "cybersecurity", "blockchain",
@@ -199,10 +246,19 @@ def clean_text_formatting(text: str) -> str:
     return text.strip()
 
 
-def correct_spelling(text: str) -> str:
-    """Scans text and corrects spelling errors while preserving proper nouns, acronyms, and formatting."""
+def correct_spelling(text: str, protected_words: set[str] | None = None) -> str:
+    """
+    Scans text and corrects spelling errors while preserving proper nouns,
+    acronyms, and formatting.
+
+    protected_words: lowercase words (typically from spaCy NER via
+    get_protected_entities) that should never be "corrected" — e.g. a real
+    city or person's name that just isn't in the spellchecker's dictionary.
+    """
     if not text or len(text) < 3:
         return text
+
+    protected = protected_words or set()
 
     tokens = re.findall(r"\w+(?:'\w+)?|[^\w\s]|\s+", text)
     corrected_tokens = []
@@ -215,14 +271,24 @@ def correct_spelling(text: str) -> str:
 
             if token[0].isupper() and len(token) > 2:
                 lower_val = token.lower()
-                if lower_val in CUSTOM_DICTIONARY or lower_val in spell:
+                if lower_val in CUSTOM_DICTIONARY or lower_val in spell or lower_val in protected:
                     corrected_tokens.append(token)
                     continue
-                corrected_tokens.append(token)
+                # Previously this branch was identical to the one above —
+                # it appended the token unchanged even when the word was
+                # NOT recognized, so misspelled/garbled capitalized words
+                # (e.g. sentence-initial BART output like "Excelent",
+                # "Recieved") were never corrected at all. Now we attempt
+                # a real correction, same as the lowercase path below.
+                correction = spell.correction(lower_val)
+                if correction and correction != lower_val:
+                    corrected_tokens.append(correction.capitalize())
+                else:
+                    corrected_tokens.append(token)
                 continue
 
             lower_word = token.lower()
-            if lower_word not in spell and lower_word not in CUSTOM_DICTIONARY:
+            if lower_word not in spell and lower_word not in CUSTOM_DICTIONARY and lower_word not in protected:
                 correction = spell.correction(lower_word)
                 if correction and correction != lower_word:
                     if token[0].isupper():
@@ -349,7 +415,8 @@ def detect_and_synthesize_form_document(text: str) -> tuple[str | None, list[str
 
     summary_text = " ".join(sentences)
     summary_text = fix_grammar_and_homophones(summary_text)
-    summary_text = correct_spelling(summary_text)
+    protected_entities = get_protected_entities(text)
+    summary_text = correct_spelling(summary_text, protected_entities)
 
     # Ensure proper ending punctuation
     if summary_text and summary_text[-1] not in ".!?":
@@ -444,12 +511,17 @@ def local_textrank_summarize(text: str, length: str = "medium") -> tuple[str, li
     selected_texts = [s[2] for s in top_sentences]
     summary_text = " ".join(selected_texts)
 
+    # Compute protected entities once from the full source text (more
+    # context for spaCy to work with than the short summary alone), then
+    # reuse it for both the summary and each key point.
+    protected_entities = get_protected_entities(text)
+
     # Final grammar polish
     summary_text = fix_grammar_and_homophones(summary_text)
-    summary_text = correct_spelling(summary_text)
+    summary_text = correct_spelling(summary_text, protected_entities)
     if summary_text and summary_text[-1] not in ".!?":
         summary_text += "."
 
-    key_points = [correct_spelling(s) for s in selected_texts]
+    key_points = [correct_spelling(s, protected_entities) for s in selected_texts]
 
     return summary_text, key_points
