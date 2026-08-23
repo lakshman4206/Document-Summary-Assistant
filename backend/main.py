@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 
 from spell_cleaner import (
     robust_sentence_split,
-    local_textrank_summarize
+    local_textrank_summarize,
+    correct_spelling,
+    get_protected_entities
 )
 
 load_dotenv()
@@ -55,6 +57,10 @@ KNOWN_ACRONYMS = {
     "XML", "HTML", "CSS", "SQL", "CEO", "CFO", "CTO", "USA", "UK", "EU",
     "UN", "NASA", "FBI", "CIA", "FAQ", "ID", "IT", "OS", "CPU", "GPU",
     "RAM", "USB", "TV", "PC", "UI", "UX", "GDP", "WHO", "NATO", "IPO",
+    # Domain-specific (Indian government exam) acronyms — kept in sync
+    # with spell_cleaner.py's CUSTOM_DICTIONARY so a word isn't preserved
+    # in one cleaning stage and stripped in another.
+    "SSC", "HSC", "UPSC", "CDS", "NDA", "GATE",
 }
 
 # Name/place prefixes where a lowercase->uppercase transition is legitimate
@@ -133,6 +139,19 @@ def normalize_capitalization_and_spacing(text: str) -> str:
     text = re.sub(r"\s+([.,!?;:])", r"\1", text)
     text = re.sub(r"([.,!?;:])(?=[A-Za-z])", r"\1 ", text)
 
+    # 1b. Direct capitalization after terminal punctuation. This is needed
+    # in addition to step 3 below because robust_sentence_split's regex
+    # only recognizes a sentence boundary when the following letter is
+    # ALREADY uppercase — a chicken-and-egg problem for exactly the
+    # lowercase-after-mojibake text this pipeline is meant to fix (e.g.
+    # "Hospital. it's a good day" never got split into two sentences, so
+    # only the very first letter of the whole block got capitalized).
+    text = re.sub(
+        r"([.!?]\s+)([a-z])",
+        lambda m: m.group(1) + m.group(2).upper(),
+        text
+    )
+
     # 2. Convert random ALL-CAPS words back to normal case, UNLESS they are
     # a recognized acronym. (Old rule: "keep if len<=4 and isupper()" wrongly
     # preserved short junk like "THE"/"AND" and had no real acronym check.)
@@ -188,6 +207,42 @@ def deep_text_repair(text: str) -> str:
 
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+def apply_ai_grammar_polish(text: str) -> str:
+    """
+    Optional extra polish pass using the T5 grammar-correction model that
+    was already configured (GRAMMAR_MODEL) but never actually called
+    anywhere in the pipeline. Best-effort: any failure here just returns
+    the input unchanged rather than breaking the response, since this is
+    a "nice to have" pass on top of the encoding/casing fixes above, not
+    a required step.
+
+    NOTE: I could not verify this against the live Hugging Face Inference
+    API from this environment (no network access to huggingface.co here),
+    so please test this specific call against your actual HF_TOKEN/plan
+    before relying on it. If `client.text_generation` doesn't fit this
+    model's task type on your account, check the model's API docs at
+    https://huggingface.co/vennify/t5-base-grammar-correction for the
+    exact expected request format.
+    """
+    if not client or not text:
+        return text
+    try:
+        result = client.text_generation(
+            f"grammar: {text}",
+            model=GRAMMAR_MODEL,
+            max_new_tokens=256,
+        )
+        polished = str(result).strip()
+        # Sanity guard: if the model returns something drastically shorter
+        # or empty, prefer the original rather than risk losing content.
+        if polished and len(polished) >= len(text) * 0.6:
+            return polished
+        return text
+    except Exception as err:
+        print(f"[Warning] Grammar polish skipped: {err}")
+        return text
 
 
 class SummaryRequest(BaseModel):
@@ -266,6 +321,19 @@ async def summarize(request: SummaryRequest):
 
     # 4c. Enforce clean sentence casing and fix random capitalized words
     polished_summary = await loop.run_in_executor(executor, normalize_capitalization_and_spacing, clean_text)
+
+    # 4d. Spell-correct against the source text's real entities (names,
+    # cities, orgs — detected via spaCy where available) so we don't
+    # "correct" a legitimate but unfamiliar proper noun into nonsense.
+    # This matters most for the BART path above, whose raw output never
+    # passed through spell_cleaner's correction logic before now.
+    protected_entities = await loop.run_in_executor(executor, get_protected_entities, raw_text)
+    polished_summary = await loop.run_in_executor(
+        executor, correct_spelling, polished_summary, protected_entities
+    )
+
+    # 4e. Optional extra AI grammar polish (best-effort, see function docstring)
+    polished_summary = await loop.run_in_executor(executor, apply_ai_grammar_polish, polished_summary)
 
     # Step 5: Clean Key Points extraction
     raw_sentences = robust_sentence_split(polished_summary)
