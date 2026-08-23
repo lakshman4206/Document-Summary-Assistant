@@ -44,41 +44,44 @@ export function repairBrokenWords(text) {
 
 /**
  * 2. Meaningless / Gibberish Token Filter
+ * Only rejects tokens that are clearly OCR scanner artifacts.
+ * Very lenient: preserves student IDs, reg numbers, codes, etc.
  */
 export function isMeaninglessToken(token) {
   if (!token) return true;
-  const clean = token.replace(/^[^\w%$#°]+|[^\w%$#°]+$/g, "");
+  const clean = token.replace(/^[^\w%$#°@.]+|[^\w%$#°@.]+$/g, "");
   if (!clean) return true;
 
-  // Pure numbers or mixed metrics: 42%, $500, 2026, 15-min, 600-mile, v2.0
-  if (/^[\d,.:;%$\-+/xX#°℃℉]+$/.test(clean) || /^\d+[A-Za-z%$\-]+$/.test(clean) || /^\$\d+/.test(clean)) {
-    return false;
-  }
+  // Always keep: pure numbers, metrics, currencies, codes with digits
+  if (/^[\d,.:;%$\-+#°℃℉xX]+$/.test(clean)) return false;
+  if (/\d/.test(clean)) return false; // any token containing a digit is preserved
+
+  // Known acronyms always kept
+  if (PRESERVED_ACRONYMS.has(clean.toUpperCase())) return false;
 
   const lower = clean.toLowerCase();
 
-  // Known acronyms are always preserved
-  if (PRESERVED_ACRONYMS.has(clean.toUpperCase())) return false;
-
-  // Single & double letter words
+  // Single letters: only noise if not 'a' or 'i'
   if (clean.length === 1) return !["a", "i"].includes(lower);
-  if (clean.length === 2) return !VALID_SHORT_WORDS.has(lower) && !PRESERVED_ACRONYMS.has(clean.toUpperCase());
 
+  // Two-letter words: keep known words and acronyms
+  if (clean.length === 2) return !VALID_SHORT_WORDS.has(lower) && !/^[A-Z]{2}$/.test(clean);
+
+  // Repetitive garbage: "aaaa", "xxxxx", "-----"
+  if (/^(.)\1{4,}$/.test(clean)) return true;
+
+  // Pure symbol noise (no alphanumeric characters)
   const letters = (clean.match(/[a-zA-Z]/g) || []).length;
-  const nonLetters = clean.length - letters;
-  if (nonLetters > letters) return true;
+  if (letters === 0) return true;
 
-  // Repetitive characters: "aaaa", "xxxx", "----"
-  if (/(.)\1{3,}/.test(clean)) return true;
-
-  // English words with 3+ letters must contain at least one vowel
-  if (letters >= 3 && !/[aeiouyAEIOUY]/.test(clean)) {
-    return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
+  // 3+ letters with no vowels is OCR garbage (unless recognized acronym like PDF, CSS, GPT)
+  if (letters >= 3 && !/[aeiouyAEIOUY]/.test(clean) && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
+    return true;
   }
 
-  // 5+ consonants in a row is OCR gibberish
-  if (/[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}/.test(clean)) {
-    return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
+  // 5+ consecutive consonants = likely OCR garbage
+  if (/[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}/.test(clean) && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
+    return true;
   }
 
   return false;
@@ -223,17 +226,16 @@ export function fixGrammarAndHomophones(text) {
 
 /**
  * 5. Full Document Cleaning Pipeline
+ * Lenient: preserves as much content as possible, only strips true OCR noise.
  */
 export function cleanDocumentText(rawText) {
   if (!rawText || typeof rawText !== "string") return "";
 
   let cleaned = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  // Page headers, dates, brackets, noise symbols
-  cleaned = cleaned.replace(/\bPage\s+\d+\s+(?:of|\/)\s+\d+\b/gi, " ");
-  cleaned = cleaned.replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
-  cleaned = cleaned.replace(/\[\s*\d+\s*\]/g, " ");
-  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u00A9\u00AE\u2122\u2192\u2190\u2191\u2193\u2194\u2195\u2022\u25AA\u25AB\u25E6\u25A0\u25A1\u25C6\u25C7~`^_=]+/g, " ");
+  // Remove page stamps, brackets, and heavy symbol lines
+  cleaned = cleaned.replace(/\bPage\s+\d+\s+(?:of|\/)?\s*\d*\b/gi, " ");
+  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u2122\u2192\u2190\u2191\u2193~`^=]{3,}/g, " ");
 
   // Repair broken words
   cleaned = repairBrokenWords(cleaned);
@@ -244,22 +246,26 @@ export function cleanDocumentText(rawText) {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+    if (trimmed.length < 2) continue;
 
     const lineTokens = trimmed.split(/\s+/).filter((token) => !isMeaninglessToken(token));
     if (lineTokens.length === 0) continue;
 
     const filtered = lineTokens.join(" ");
     const letters = (filtered.match(/[A-Za-z]/g) || []).length;
-    if (letters < 3) continue;
+    if (letters < 2) continue;
 
     const normalized = normalizeSentenceCase(filtered);
     processedLines.push(normalized);
   }
 
+  if (processedLines.length === 0) {
+    return rawText.trim().replace(/\s{2,}/g, " ");
+  }
+
   const stitched = processedLines.map((l) => {
-    let s = l.trim();
-    if (!/[.!?:]$/.test(s)) s += ".";
-    return s;
+    const s = l.trim();
+    return /[.!?:]$/.test(s) ? s : s + ".";
   }).join(" ");
 
   return fixGrammarAndHomophones(stitched);
@@ -297,7 +303,7 @@ export function splitSentences(text) {
     .filter((s) => {
       const words = s.split(/\s+/).filter(Boolean);
       const letters = (s.match(/[A-Za-z]/g) || []).length;
-      return words.length >= 4 && letters >= 15;
+      return words.length >= 2 && letters >= 6;
     });
 }
 

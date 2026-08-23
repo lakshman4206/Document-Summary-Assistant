@@ -104,7 +104,14 @@ export function summarizeText(text, length = "medium", tone = "standard") {
     };
   }
 
-  const sentences = splitSentences(cleaned);
+  let sentences = splitSentences(cleaned);
+  if (!sentences.length) {
+    sentences = cleaned
+      .split(/[.!?\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 8 && (s.match(/[A-Za-z]/g) || []).length >= 4);
+  }
+
   if (sentences.length <= 2) {
     const sText = sentences.join(" ") || cleaned;
     return {

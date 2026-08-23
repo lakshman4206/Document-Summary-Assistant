@@ -110,35 +110,44 @@ export const repairBrokenWords = (text) => {
 
 /**
  * 2. Meaningless / Gibberish Token Filter
+ * Only rejects tokens that are clearly OCR scanner artifacts.
+ * Very lenient: preserves student IDs, reg numbers, codes, etc.
  */
 export const isLikelyNoiseToken = (token) => {
   if (!token) return true;
-  const clean = token.replace(/^[^\w%$#°]+|[^\w%$#°]+$/g, "");
+  const clean = token.replace(/^[^\w%$#°@.]+|[^\w%$#°@.]+$/g, "");
   if (!clean) return true;
 
-  if (/^[\d,.:;%$\-+/xX#°℃℉]+$/.test(clean) || /^\d+[A-Za-z%$\-]+$/.test(clean) || /^\$\d+/.test(clean)) {
-    return false;
-  }
+  // Always keep: pure numbers, metrics, currencies, codes with digits
+  if (/^[\d,.:;%$\-+#°℃℉xX]+$/.test(clean)) return false;
+  if (/\d/.test(clean)) return false; // any token containing a digit is preserved
+
+  // Known acronyms always kept
+  if (PRESERVED_ACRONYMS.has(clean.toUpperCase())) return false;
 
   const lower = clean.toLowerCase();
 
-  if (PRESERVED_ACRONYMS.has(clean.toUpperCase())) return false;
-
+  // Single letters: only noise if not 'a' or 'i'
   if (clean.length === 1) return !["a", "i"].includes(lower);
-  if (clean.length === 2) return !VALID_SHORT_WORDS.has(lower) && !PRESERVED_ACRONYMS.has(clean.toUpperCase());
 
+  // Two-letter words: keep known words and acronyms
+  if (clean.length === 2) return !VALID_SHORT_WORDS.has(lower) && !/^[A-Z]{2}$/.test(clean);
+
+  // Repetitive garbage: "aaaa", "xxxxx", "-----"
+  if (/^(.)\1{4,}$/.test(clean)) return true;
+
+  // Pure symbol noise (no alphanumeric characters)
   const letters = (clean.match(/[a-zA-Z]/g) || []).length;
-  const nonLetters = clean.length - letters;
-  if (nonLetters > letters) return true;
+  if (letters === 0) return true;
 
-  if (/(.)\1{3,}/.test(clean)) return true;
-
-  if (letters >= 3 && !/[aeiouyAEIOUY]/.test(clean)) {
-    return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
+  // 3+ letters with no vowels is OCR garbage (unless recognized acronym like PDF, CSS, GPT)
+  if (letters >= 3 && !/[aeiouyAEIOUY]/.test(clean) && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
+    return true;
   }
 
-  if (/[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}/.test(clean)) {
-    return !PRESERVED_ACRONYMS.has(clean.toUpperCase());
+  // 5+ consecutive consonants = likely OCR garbage
+  if (/[bcdfghjklmnpqrstvwxzBCDFGHJKLMNPQRSTVWXZ]{5,}/.test(clean) && !PRESERVED_ACRONYMS.has(clean.toUpperCase())) {
+    return true;
   }
 
   return false;
@@ -280,17 +289,18 @@ export const fixGrammarAndHomophones = (text) => {
 
 /**
  * 5. Full Document Cleaning Pipeline
+ * Lenient: preserves as much content as possible, only strips true OCR noise.
  */
 export const cleanExtractedText = (text) => {
-  if (!text) return "";
+  if (!text || typeof text !== "string") return "";
 
   let cleaned = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  cleaned = cleaned.replace(/\bPage\s+\d+\s+(?:of|\/)\s+\d+\b/gi, " ");
-  cleaned = cleaned.replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\s+\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
-  cleaned = cleaned.replace(/\[\s*\d+\s*\]/g, " ");
-  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u00A9\u00AE\u2122\u2192\u2190\u2191\u2193\u2194\u2195\u2022\u25AA\u25AB\u25E6\u25A0\u25A1\u25C6\u25C7~`^_=]+/g, " ");
+  // Remove page stamps, timestamps, bracket references, and heavy symbol lines
+  cleaned = cleaned.replace(/\bPage\s+\d+\s+(?:of|\/)?\s*\d*\b/gi, " ");
+  cleaned = cleaned.replace(/[|\u00A6\u00A7\u00A4\u2122\u2192\u2190\u2191\u2193~`^=]{3,}/g, " ");
 
+  // Repair broken words first
   cleaned = repairBrokenWords(cleaned);
 
   const lines = cleaned.split(/\r?\n/);
@@ -299,22 +309,29 @@ export const cleanExtractedText = (text) => {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+    if (trimmed.length < 2) continue;
 
+    // Filter individual tokens — very lenient
     const lineTokens = trimmed.split(/\s+/).filter((token) => !isLikelyNoiseToken(token));
     if (lineTokens.length === 0) continue;
 
     const filtered = lineTokens.join(" ");
+    // Require at least 2 letters total in the line
     const letters = (filtered.match(/[A-Za-z]/g) || []).length;
-    if (letters < 3) continue;
+    if (letters < 2) continue;
 
-    const normalized = normalizeSentenceCase(filtered);
-    processedLines.push(normalized);
+    processedLines.push(normalizeSentenceCase(filtered));
   }
 
+  if (processedLines.length === 0) {
+    // Fallback: if everything got filtered, return the original text lightly cleaned
+    return text.trim().replace(/\s{2,}/g, " ").replace(/[|\u00A6\u00A7]{2,}/g, "");
+  }
+
+  // Join lines with periods to help sentence splitting
   const stitched = processedLines.map((l) => {
-    let s = l.trim();
-    if (!/[.!?:]$/.test(s)) s += ".";
-    return s;
+    const s = l.trim();
+    return /[.!?:]$/.test(s) ? s : s + ".";
   }).join(" ");
 
   return fixGrammarAndHomophones(stitched);
@@ -498,7 +515,11 @@ const createInBrowserSummary = (
   length = "medium",
   tone = "standard"
 ) => {
-  const cleaned = cleanExtractedText(text) || text?.trim() || "";
+  // Try cleaned version; fall back to raw text if cleaning emptied everything
+  let cleaned = cleanExtractedText(text);
+  if (!cleaned || cleaned.trim().length < 20) {
+    cleaned = text?.trim() || "";
+  }
 
   if (!cleaned) {
     return {
@@ -511,28 +532,28 @@ const createInBrowserSummary = (
     };
   }
 
-  const sentences = getSentences(cleaned);
   const restructuredDocument = restructureDocument(text);
   const entities = extractEntities(cleaned);
   const readability = calculateReadability(cleaned);
 
+  // Try proper sentence splitting first
+  let sentences = getSentences(cleaned);
+
+  // If no sentences detected (e.g. ID card with field labels only),
+  // split by periods or newlines as fallback segments
   if (!sentences.length) {
-    const fallback = fixGrammarAndHomophones(cleaned);
-    return {
-      summary: fallback,
-      keyPoints: [fallback],
-      keywords: extractKeywords(cleaned),
-      restructuredDocument,
-      entities,
-      readability
-    };
+    sentences = cleaned
+      .split(/[.!?\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 8 && (s.match(/[A-Za-z]/g) || []).length >= 4);
   }
 
-  if (sentences.length <= 2) {
-    const sText = sentences.join(" ");
+  // Final fallback: use the whole cleaned text as one summary block
+  if (!sentences.length) {
+    const fallbackSummary = cleaned.slice(0, 800).trim();
     return {
-      summary: sText,
-      keyPoints: sentences,
+      summary: fallbackSummary,
+      keyPoints: cleaned.split(".").filter((s) => s.trim().length > 5).slice(0, 4).map((s) => s.trim()),
       keywords: extractKeywords(cleaned),
       restructuredDocument,
       entities,
@@ -569,9 +590,9 @@ const createInBrowserSummary = (
     if (importantPatterns.some((p) => p.test(sentence))) score += 1.3;
 
     const wc = sentence.split(/\s+/).length;
-    if (wc >= 10 && wc <= 35) score += 0.6;
-    if (wc > 50) score -= 0.4;
-    if (wc < 6) score -= 0.5;
+    if (wc >= 8 && wc <= 40) score += 0.6;
+    if (wc > 60) score -= 0.4;
+    if (wc < 4) score -= 0.8;
 
     return { text: sentence, index, score };
   });
@@ -582,13 +603,13 @@ const createInBrowserSummary = (
   let keyPointTarget = 4;
 
   if (length === "short") {
-    summaryTarget = documentWordCount < 400 ? 2 : documentWordCount < 1500 ? 3 : 4;
+    summaryTarget = documentWordCount < 200 ? 2 : documentWordCount < 1000 ? 3 : 4;
     keyPointTarget = 3;
   } else if (length === "long") {
-    summaryTarget = documentWordCount < 400 ? 4 : documentWordCount < 1500 ? 7 : 10;
+    summaryTarget = documentWordCount < 200 ? 3 : documentWordCount < 1000 ? 6 : 10;
     keyPointTarget = 6;
   } else {
-    summaryTarget = documentWordCount < 400 ? 3 : documentWordCount < 1500 ? 5 : 7;
+    summaryTarget = documentWordCount < 200 ? 2 : documentWordCount < 1000 ? 4 : 6;
     keyPointTarget = 4;
   }
 
@@ -598,7 +619,7 @@ const createInBrowserSummary = (
   const selected = [];
   for (const candidate of ranked) {
     const isDup = selected.some(
-      (existing) => sentenceSimilarity(candidate.text, existing.text) > 0.52
+      (existing) => sentenceSimilarity(candidate.text, existing.text) > 0.55
     );
     if (!isDup) selected.push(candidate);
     if (selected.length >= summaryTarget) break;
