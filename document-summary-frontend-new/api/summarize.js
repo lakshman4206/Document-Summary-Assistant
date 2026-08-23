@@ -1,5 +1,5 @@
 /**
- * Vercel Serverless Function: Standalone NLP Summarization & Document Cleaner
+ * Vercel Serverless Function: Advanced AI & NLP Document Summarization Engine
  */
 
 const STOP_WORDS = new Set([
@@ -44,18 +44,32 @@ function splitSentences(text) {
   const raw = text.split(/(?<=[.!?\n])\s+/);
   return raw
     .map((s) => s.trim())
-    .filter((s) => s.length > 8 && (s.match(/[A-Za-z]/g) || []).length >= 4);
+    .filter((s) => s.length >= 8 && (s.match(/[A-Za-z]/g) || []).length >= 4);
 }
 
-function summarizeText(text, length = "medium", tone = "standard") {
+function sentenceSimilarity(sentA, sentB) {
+  const textA = typeof sentA === "string" ? sentA : sentA?.text || "";
+  const textB = typeof sentB === "string" ? sentB : sentB?.text || "";
+  if (!textA || !textB) return 0;
+  const wordsA = new Set(tokenize(textA));
+  const wordsB = new Set(tokenize(textB));
+  if (!wordsA.size || !wordsB.size) return 0;
+  let common = 0;
+  wordsA.forEach((w) => {
+    if (wordsB.has(w)) common++;
+  });
+  return common / Math.max(wordsA.size, wordsB.size);
+}
+
+function generateStructuredSummary(text, length = "medium", tone = "standard") {
   const sentences = splitSentences(text);
   if (!sentences.length) {
     const fallback = text.slice(0, 500).trim();
     return {
       summary: fallback,
       key_points: [fallback],
-      keywords: extractKeywords(text, 5),
-      restructured_document: text
+      takeaways: [fallback],
+      keywords: extractKeywords(text, 5)
     };
   }
 
@@ -63,13 +77,20 @@ function summarizeText(text, length = "medium", tone = "standard") {
     return {
       summary: sentences.join(" "),
       key_points: sentences,
-      keywords: extractKeywords(text, 5),
-      restructured_document: text
+      takeaways: sentences,
+      keywords: extractKeywords(text, 5)
     };
   }
 
   const freq = getWordFrequency(text);
   const maxFreq = Math.max(...Object.values(freq), 1);
+
+  const importantPatterns = [
+    /\b(crucial|primary|essential|significant|major|concluded|resulted|demonstrated|revealed|objective|breakthrough|achieved|strategy|finding|developed|growth|priority|outcome|increase|decrease|innovation|policy)\b/i,
+    /\b(started|began|decided|planned|realized|discovered|learned)\b/i,
+    /\b(caused|led to|therefore|due to|as a result|consequently)\b/i,
+    /\b(conclusion|finally|summary|overall|in total|specifically)\b/i
+  ];
 
   const scored = sentences.map((sent, index) => {
     const words = tokenize(sent);
@@ -77,8 +98,14 @@ function summarizeText(text, length = "medium", tone = "standard") {
     words.forEach((w) => {
       score += (freq[w] || 0) / maxFreq;
     });
-    if (index === 0) score += 1.5;
-    if (index === sentences.length - 1) score += 1.0;
+    if (index === 0) score += 1.6;
+    if (index === 1) score += 0.8;
+    if (index === sentences.length - 1) score += 1.1;
+    if (importantPatterns.some((p) => p.test(sent))) score += 1.4;
+
+    const wc = sent.split(/\s+/).length;
+    if (wc >= 8 && wc <= 40) score += 0.6;
+    if (wc > 60) score -= 0.4;
     return { text: sent, index, score };
   });
 
@@ -86,18 +113,37 @@ function summarizeText(text, length = "medium", tone = "standard") {
   const target = Math.min(count, sentences.length);
 
   const ranked = [...scored].sort((a, b) => b.score - a.score);
-  const selected = ranked.slice(0, target).sort((a, b) => a.index - b.index);
+
+  const selected = [];
+  for (const candidate of ranked) {
+    const isDup = selected.some((existing) => sentenceSimilarity(candidate.text, existing) > 0.52);
+    if (!isDup) selected.push(candidate);
+    if (selected.length >= target) break;
+  }
+
+  selected.sort((a, b) => a.index - b.index);
 
   let summary = selected.map((s) => s.text).join(" ");
   if (tone === "bullet") {
     summary = selected.map((s) => `• ${s.text}`).join("\n\n");
   }
 
+  const keyPoints = [];
+  for (const candidate of ranked) {
+    const isDup = keyPoints.some((existing) => sentenceSimilarity(candidate.text, existing) > 0.42);
+    if (!isDup) keyPoints.push(candidate.text);
+    if (keyPoints.length >= Math.min(5, sentences.length)) break;
+  }
+
+  const takeaways = ranked
+    .slice(0, Math.min(3, ranked.length))
+    .map((item) => item.text);
+
   return {
     summary,
-    key_points: selected.map((s) => s.text),
-    keywords: extractKeywords(text, 6),
-    restructured_document: text
+    key_points: keyPoints,
+    takeaways,
+    keywords: extractKeywords(text, 6)
   };
 }
 
@@ -120,7 +166,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ detail: "No document text was provided." });
   }
 
-  // Try external microservice first
+  // Try external local or render backend
   const endpoints = [
     "http://localhost:5000/api/summarize",
     "https://document-summary-assistant-ekuy.onrender.com/api/summarize"
@@ -141,11 +187,11 @@ export default async function handler(req, res) {
         }
       }
     } catch (error) {
-      // try next or fallback
+      // continue to fallback
     }
   }
 
-  // Guaranteed fallback: execute internal NLP engine
-  const result = summarizeText(text.trim(), length, tone);
+  // Standalone AI & NLP Summarizer
+  const result = generateStructuredSummary(text.trim(), length, tone);
   return res.status(200).json(result);
 }

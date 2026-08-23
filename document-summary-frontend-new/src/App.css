@@ -1967,3 +1967,260 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* =========================================================
+   IMMERSIVE SCAN / LOADING BOX
+========================================================= */
+
+.immersive-scan-box {
+  margin-top: 20px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: fadeIn 0.3s ease;
+}
+
+.scan-status-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Animated pulse ring */
+.scan-pulse-ring {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.scan-pulse-ring::before,
+.scan-pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2.5px solid var(--primary-light);
+  animation: scanPulse 1.5s ease-out infinite;
+}
+.scan-pulse-ring::after {
+  animation-delay: 0.6s;
+}
+@keyframes scanPulse {
+  0%   { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.scan-meta-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scan-title-text {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--primary-light);
+}
+
+.scan-current-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.scan-timer-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.scan-steps-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.scan-step-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: var(--transition);
+}
+
+.scan-step-pill.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: var(--primary);
+  color: var(--primary-light);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.25);
+}
+
+.scan-step-pill.done {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: var(--accent-emerald);
+}
+
+.step-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--bg-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.scan-step-pill .step-num {
+  background: var(--border-subtle);
+  color: var(--text-muted);
+}
+.scan-step-pill.active .step-num {
+  background: var(--primary-light);
+  color: white;
+  animation: spin 1s linear infinite;
+}
+.scan-step-pill.done .step-num {
+  background: var(--accent-emerald);
+  color: white;
+}
+
+.step-txt {
+  font-size: 12px;
+}
+
+/* Laser beam sweep across file-preview-card */
+.file-preview-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanning-laser-beam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: inherit;
+}
+.scanning-laser-beam::after {
+  content: "";
+  position: absolute;
+  left: -100%;
+  top: 0;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(99, 102, 241, 0.12) 40%,
+    rgba(99, 102, 241, 0.35) 50%,
+    rgba(99, 102, 241, 0.12) 60%,
+    transparent 100%
+  );
+  animation: laserSweep 1.5s ease-in-out infinite;
+}
+@keyframes laserSweep {
+  0%   { left: -80%; }
+  100% { left: 120%; }
+}
+
+/* =========================================================
+   TAKEAWAYS CARD & GRID
+========================================================= */
+
+.takeaways-card {
+  border-color: rgba(168, 85, 247, 0.25) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(168, 85, 247, 0.04) 0%,
+    var(--bg-card) 100%
+  ) !important;
+}
+
+.takeaways-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.takeaway-box {
+  background: rgba(168, 85, 247, 0.07);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: var(--transition);
+}
+
+.takeaway-box:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  background: rgba(168, 85, 247, 0.1);
+  transform: translateY(-2px);
+}
+
+.takeaway-badge {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #c084fc;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: var(--radius-full);
+  padding: 2px 8px;
+  align-self: flex-start;
+}
+
+.takeaway-text {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-main);
+  margin: 0;
+}
+
+/* =========================================================
+   RESPONSIVE — immersive scan & takeaways
+========================================================= */
+
+@media (max-width: 640px) {
+  .scan-steps-row {
+    gap: 4px;
+  }
+  .scan-step-pill {
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+  .takeaways-grid {
+    grid-template-columns: 1fr;
+  }
+  .scan-timer-badge {
+    font-size: 11px;
+  }
+}

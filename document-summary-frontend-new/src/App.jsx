@@ -116,7 +116,6 @@ export const isLikelyNoiseToken = (token) => {
   const clean = token.replace(/^[^\w%$#°@.]+|[^\w%$#°@.]+$/g, "");
   if (!clean) return true;
 
-  // Numbers, IDs, codes, percentages, currencies are always kept
   if (/^[\d,.:;%$\-+#°℃℉xX]+$/.test(clean)) return false;
   if (/\d/.test(clean)) return false;
 
@@ -370,6 +369,7 @@ const createInBrowserSummary = (
     return {
       summary: "",
       keyPoints: [],
+      takeaways: [],
       keywords: []
     };
   }
@@ -388,6 +388,7 @@ const createInBrowserSummary = (
     return {
       summary: fallback,
       keyPoints: cleaned.split(".").filter((s) => s.trim().length > 5).slice(0, 4).map((s) => s.trim()),
+      takeaways: [fallback],
       keywords: extractKeywords(cleaned)
     };
   }
@@ -397,6 +398,7 @@ const createInBrowserSummary = (
     return {
       summary: sText,
       keyPoints: sentences,
+      takeaways: sentences,
       keywords: extractKeywords(cleaned)
     };
   }
@@ -458,9 +460,7 @@ const createInBrowserSummary = (
 
   const selected = [];
   for (const candidate of ranked) {
-    const isDup = selected.some(
-      (existing) => sentenceSimilarity(candidate.text, existing) > 0.55
-    );
+    const isDup = selected.some((existing) => sentenceSimilarity(candidate.text, existing) > 0.55);
     if (!isDup) selected.push(candidate);
     if (selected.length >= summaryTarget) break;
   }
@@ -476,16 +476,19 @@ const createInBrowserSummary = (
 
   const keyPoints = [];
   for (const candidate of ranked) {
-    const isDup = keyPoints.some(
-      (existing) => sentenceSimilarity(candidate.text, existing) > 0.42
-    );
+    const isDup = keyPoints.some((existing) => sentenceSimilarity(candidate.text, existing) > 0.42);
     if (!isDup) keyPoints.push(candidate.text);
     if (keyPoints.length >= keyPointTarget) break;
   }
 
+  const takeaways = ranked
+    .slice(0, Math.min(3, ranked.length))
+    .map((item) => item.text);
+
   return {
     summary,
     keyPoints: keyPoints.map((kp) => fixGrammarAndHomophones(kp)),
+    takeaways: takeaways.map((tk) => fixGrammarAndHomophones(tk)),
     keywords: extractKeywords(cleaned, 6)
   };
 };
@@ -611,7 +614,7 @@ const ocrScannedPDF = async (pdf, setProgress) => {
   let fullText = "";
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-    setProgress(`OCR scanning page ${pageNumber} of ${pdf.numPages}...`);
+    setProgress(`Optical scanning page ${pageNumber} of ${pdf.numPages}...`);
 
     try {
       const page = await pdf.getPage(pageNumber);
@@ -658,7 +661,7 @@ const ocrScannedPDF = async (pdf, setProgress) => {
 };
 
 const extractTextFromImage = async (file, setProgress) => {
-  setProgress("Preparing image for high-accuracy OCR...");
+  setProgress("Preparing image for high-accuracy neural OCR...");
 
   let worker;
   try {
@@ -676,7 +679,7 @@ const extractTextFromImage = async (file, setProgress) => {
 
   try {
     const processedCanvas = preprocessCanvasForOCR(rawCanvas);
-    setProgress("Scanning image with Tesseract OCR engine...");
+    setProgress("Scanning high-contrast optical pass...");
     const ocrResult = await worker.recognize(processedCanvas);
     text = ocrResult?.data?.text || "";
   } catch (e) {
@@ -685,7 +688,7 @@ const extractTextFromImage = async (file, setProgress) => {
 
   if (!text || text.trim().length < 15) {
     try {
-      setProgress("Running high-density optical scan pass...");
+      setProgress("Running secondary high-density optical pass...");
       const rawOcrResult = await worker.recognize(rawCanvas);
       const rawText = rawOcrResult?.data?.text || "";
       if (rawText.trim().length > text.trim().length) {
@@ -752,12 +755,15 @@ function App() {
 
   const [summary, setSummary] = useState("");
   const [keyPoints, setKeyPoints] = useState([]);
+  const [takeaways, setTakeaways] = useState([]);
   const [keywords, setKeywords] = useState([]);
 
   const [isDragging, setIsDragging] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
+  const [scanStep, setScanStep] = useState(1);
+  const [scanSeconds, setScanSeconds] = useState(0);
   const [error, setError] = useState("");
   const [metrics, setMetrics] = useState(null);
 
@@ -776,6 +782,7 @@ function App() {
 
   const synthRef = useRef(window.speechSynthesis || null);
   const utteranceRef = useRef(null);
+  const timerRef = useRef(null);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -789,6 +796,20 @@ function App() {
       console.error(e);
     }
   }, [history]);
+
+  useEffect(() => {
+    if (loading) {
+      setScanSeconds(0);
+      timerRef.current = setInterval(() => {
+        setScanSeconds((prev) => +(prev + 0.1).toFixed(1));
+      }, 100);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [loading]);
 
   const showToast = (message, type = "success") => {
     const id = Date.now();
@@ -859,12 +880,15 @@ function App() {
     }
 
     setLoading(true);
+    setScanStep(1);
     setSummary("");
     setKeyPoints([]);
+    setTakeaways([]);
     setKeywords([]);
 
     try {
-      setProgress("Ingesting document and analyzing structure...");
+      setScanStep(1);
+      setProgress("Ingesting document and calibrating optical resolution...");
 
       if (activeTab === "upload") {
         const ext = file.name.split(".").pop().toLowerCase();
@@ -875,7 +899,8 @@ function App() {
 
           const cleanedPreview = cleanExtractedText(sourceText);
           if (!cleanedPreview || cleanedPreview.trim().length < 30) {
-            setProgress("Scanned content detected. Performing OCR optical scan...");
+            setScanStep(2);
+            setProgress("Scanned content detected. Performing dual-pass OCR optical scan...");
             if (result?.pdf) {
               const ocrText = await ocrScannedPDF(result.pdf, setProgress);
               if (ocrText && ocrText.trim().length > sourceText.trim().length) {
@@ -884,6 +909,7 @@ function App() {
             }
           }
         } else if (["png", "jpg", "jpeg", "webp"].includes(ext)) {
+          setScanStep(2);
           sourceText = await extractTextFromImage(file, setProgress);
         } else if (ext === "docx") {
           sourceText = await extractTextFromWord(file, setProgress);
@@ -898,10 +924,16 @@ function App() {
         sourceText = `Document: ${file?.name || "Uploaded Document"}\nStatus: Visual layout analysis completed.`;
       }
 
-      setProgress("Synthesizing executive summary and key points...");
+      setScanStep(3);
+      setProgress("Healing typos, repairing split words, and normalizing casing...");
+      await new Promise((r) => setTimeout(r, 300));
+
+      setScanStep(4);
+      setProgress("Synthesizing executive narrative, key points, and core insights...");
 
       let finalSummary = "";
       let finalKeyPoints = [];
+      let finalTakeaways = [];
       let finalKeywords = [];
 
       if (engine === "ai") {
@@ -929,6 +961,7 @@ function App() {
               if (data.summary) {
                 finalSummary = data.summary;
                 finalKeyPoints = data.key_points || data.keyPoints || [];
+                finalTakeaways = data.takeaways || data.key_points?.slice(0, 3) || [];
                 finalKeywords = data.keywords || extractKeywords(sourceText, 6);
                 success = true;
                 break;
@@ -943,12 +976,14 @@ function App() {
           const fallback = createInBrowserSummary(sourceText, summaryLength, summaryTone);
           finalSummary = fallback.summary;
           finalKeyPoints = fallback.keyPoints;
+          finalTakeaways = fallback.takeaways || fallback.keyPoints.slice(0, 3);
           finalKeywords = fallback.keywords;
         }
       } else {
         const result = createInBrowserSummary(sourceText, summaryLength, summaryTone);
         finalSummary = result.summary;
         finalKeyPoints = result.keyPoints;
+        finalTakeaways = result.takeaways;
         finalKeywords = result.keywords;
       }
 
@@ -958,6 +993,7 @@ function App() {
 
       setSummary(finalSummary);
       setKeyPoints(finalKeyPoints);
+      setTakeaways(finalTakeaways);
       setKeywords(finalKeywords);
 
       const computed = computeMetrics(sourceText, finalSummary);
@@ -982,6 +1018,7 @@ function App() {
     } finally {
       setLoading(false);
       setProgress("");
+      setScanStep(1);
     }
   };
 
@@ -995,7 +1032,7 @@ function App() {
     if (!summary) return;
     const docTitle = activeTab === "upload" ? file?.name || "Document" : "Text-Analysis";
     const content = `=====================================================
-DOCUMENT SUMMARY ASSISTANT • SUMMARY REPORT
+DOCUMENT SUMMARY ASSISTANT • EXECUTIVE REPORT
 Document: ${docTitle}
 Generated: ${new Date().toLocaleString()}
 Compression: ${metrics?.reductionPercent || 0}% reduction
@@ -1005,11 +1042,15 @@ Compression: ${metrics?.reductionPercent || 0}% reduction
 -----------------------------------------------------
 ${summary}
 
-2. KEY TAKEAWAYS:
+2. KEY INSIGHTS & FACTS:
 -----------------------------------------------------
 ${keyPoints.map((pt, i) => `${i + 1}. ${pt}`).join("\n\n")}
 
-3. KEY TOPICS:
+3. CORE TAKEAWAYS:
+-----------------------------------------------------
+${takeaways.map((tk, i) => `• ${tk}`).join("\n")}
+
+4. KEY TOPICS:
 -----------------------------------------------------
 ${keywords.join(", ")}
 `;
@@ -1027,10 +1068,11 @@ ${keywords.join(", ")}
   const exportMD = () => {
     if (!summary) return;
     const docTitle = activeTab === "upload" ? file?.name || "Document" : "Text-Analysis";
-    const content = `# Document Summary: ${docTitle}
+    const content = `# Executive Briefing: ${docTitle}
 
 > **Generated with Document Summary Assistant** • ${new Date().toLocaleDateString()}
 > **Compression**: ${metrics?.reductionPercent || 0}% reduction (${metrics?.originalWords || 0} → ${metrics?.summaryWords || 0} words)
+> **Reading Time Saved**: ${metrics?.timeSavedMinutes || "< 1 min"}
 
 ---
 
@@ -1039,12 +1081,17 @@ ${summary}
 
 ---
 
-## 🎯 Key Takeaways
+## 🎯 Key Insights & Facts
 ${keyPoints.map((pt) => `- ${pt}`).join("\n")}
 
 ---
 
-## 🏷️ Key Topics
+## 💡 Core Takeaways
+${takeaways.map((tk) => `> **Takeaway**: ${tk}`).join("\n\n")}
+
+---
+
+## 🏷️ Key Topics & Tags
 ${keywords.map((k) => `\`#${k}\``).join(" ")}
 `;
 
@@ -1100,6 +1147,7 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
   const loadHistoryItem = (item) => {
     setSummary(item.summary);
     setKeyPoints(item.keyPoints || []);
+    setTakeaways(item.takeaways || item.keyPoints?.slice(0, 3) || []);
     setMetrics(item.metrics || null);
     setKeywords(item.keywords || []);
     setShowHistoryModal(false);
@@ -1232,6 +1280,8 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                   </div>
                 ) : (
                   <div className="file-preview-card">
+                    {loading && <div className="scanning-laser-beam"></div>}
+
                     <div className="file-preview-info">
                       <div className="file-type-icon">
                         {file.name.endsWith(".pdf")
@@ -1251,7 +1301,7 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                       </div>
                     </div>
 
-                    <button className="remove-file-btn" onClick={() => setFile(null)}>
+                    <button className="remove-file-btn" onClick={() => setFile(null)} disabled={loading}>
                       ✕ Remove
                     </button>
                   </div>
@@ -1323,7 +1373,7 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                     className={`engine-chip ${engine === "client" ? "active" : ""}`}
                     onClick={() => setEngine("client")}
                   >
-                    <strong>⚡ In-Browser Fast Engine</strong>
+                    <strong>⚡ In-Browser Engine</strong>
                     <span>Private & Instant OCR</span>
                   </div>
 
@@ -1331,17 +1381,42 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                     className={`engine-chip ${engine === "ai" ? "active" : ""}`}
                     onClick={() => setEngine("ai")}
                   >
-                    <strong>🚀 Node.js / AI Cloud</strong>
-                    <span>Server-Side NLP Pipeline</span>
+                    <strong>🚀 AI Intelligence Cloud</strong>
+                    <span>Executive NLP Synthesizer</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {loading && progress && (
-              <div className="inline-progress-box">
-                <div className="spinner-ring"></div>
-                <span className="progress-text">{progress}</span>
+            {loading && (
+              <div className="immersive-scan-box">
+                <div className="scan-status-header">
+                  <div className="scan-pulse-ring"></div>
+                  <div className="scan-meta-group">
+                    <span className="scan-title-text">Active Optical & AI Engine</span>
+                    <span className="scan-current-msg">{progress}</span>
+                  </div>
+                  <span className="scan-timer-badge">⏱ {scanSeconds}s</span>
+                </div>
+
+                <div className="scan-steps-row">
+                  {[
+                    { step: 1, label: "Ingestion" },
+                    { step: 2, label: "Neural OCR" },
+                    { step: 3, label: "Text Healing" },
+                    { step: 4, label: "AI Synthesis" }
+                  ].map((s) => (
+                    <div
+                      key={s.step}
+                      className={`scan-step-pill ${
+                        scanStep > s.step ? "done" : scanStep === s.step ? "active" : ""
+                      }`}
+                    >
+                      <span className="step-num">{scanStep > s.step ? "✓" : s.step}</span>
+                      <span className="step-txt">{s.label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1353,7 +1428,7 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                 onClick={handleGenerate}
                 disabled={loading || (activeTab === "upload" && !file) || (activeTab === "text" && !inputText.trim())}
               >
-                {loading ? "⏳ Analyzing Document..." : "✨ Generate Summary"}
+                {loading ? "⏳ Analyzing & Synthesizing..." : "✨ Generate Summary"}
               </button>
             </div>
           </section>
@@ -1434,6 +1509,7 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                 </div>
               </div>
 
+              {/* 1. Executive Narrative Overview */}
               <section className="glass-card">
                 <div className="card-header-row">
                   <div className="card-title-group">
@@ -1476,14 +1552,15 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                 )}
               </section>
 
+              {/* 2. Key Insights & Core Facts */}
               {keyPoints.length > 0 && (
                 <section className="glass-card">
                   <div className="card-header-row">
                     <div className="card-title-group">
                       <span className="card-icon">🎯</span>
                       <div>
-                        <h2 className="card-title">Key Takeaways & Core Facts</h2>
-                        <span className="card-subtitle">Critical points, metrics, and outcomes</span>
+                        <h2 className="card-title">Key Insights & Facts</h2>
+                        <span className="card-subtitle">Critical metrics, statements, and decisions</span>
                       </div>
                     </div>
 
@@ -1496,7 +1573,7 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                         )
                       }
                     >
-                      📋 Copy All Points
+                      📋 Copy All Insights
                     </button>
                   </div>
 
@@ -1512,6 +1589,30 @@ ${keywords.map((k) => `\`#${k}\``).join(" ")}
                         >
                           📋
                         </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* 3. Core Actionable Takeaways */}
+              {takeaways.length > 0 && (
+                <section className="glass-card takeaways-card">
+                  <div className="card-header-row">
+                    <div className="card-title-group">
+                      <span className="card-icon">💡</span>
+                      <div>
+                        <h2 className="card-title">Core Takeaways</h2>
+                        <span className="card-subtitle">High-impact summary highlights</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="takeaways-grid">
+                    {takeaways.map((takeaway, idx) => (
+                      <div key={idx} className="takeaway-box">
+                        <span className="takeaway-badge">Highlight {idx + 1}</span>
+                        <p className="takeaway-text">{takeaway}</p>
                       </div>
                     ))}
                   </div>
