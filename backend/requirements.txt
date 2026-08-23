@@ -3,4 +3,5 @@ uvicorn[standard]
 python-dotenv
 huggingface_hub
 pyspellchecker
-nltk
+nltk
+ftfy
