@@ -43,8 +43,11 @@ function getWordFrequency(text) {
 }
 
 function sentenceSimilarity(sentA, sentB) {
-  const wordsA = new Set(tokenize(sentA));
-  const wordsB = new Set(tokenize(sentB));
+  const textA = typeof sentA === "string" ? sentA : sentA?.text || "";
+  const textB = typeof sentB === "string" ? sentB : sentB?.text || "";
+  if (!textA || !textB) return 0;
+  const wordsA = new Set(tokenize(textA));
+  const wordsB = new Set(tokenize(textB));
   if (!wordsA.size || !wordsB.size) return 0;
 
   let common = 0;
@@ -176,7 +179,7 @@ export function summarizeText(text, length = "medium", tone = "standard") {
   const selected = [];
   for (const candidate of ranked) {
     const isDup = selected.some(
-      (existing) => sentenceSimilarity(candidate.text, existing.text) > 0.52
+      (existing) => sentenceSimilarity(candidate.text, existing) > 0.52
     );
     if (!isDup) selected.push(candidate);
     if (selected.length >= summaryTarget) break;
@@ -194,7 +197,7 @@ export function summarizeText(text, length = "medium", tone = "standard") {
   const keyPoints = [];
   for (const candidate of ranked) {
     const isDup = keyPoints.some(
-      (existing) => sentenceSimilarity(candidate.text, existing.text) > 0.42
+      (existing) => sentenceSimilarity(candidate.text, existing) > 0.42
     );
     if (!isDup) keyPoints.push(candidate.text);
     if (keyPoints.length >= keyPointTarget) break;

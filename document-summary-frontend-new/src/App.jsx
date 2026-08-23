@@ -328,8 +328,11 @@ const getSentences = (text) => {
 };
 
 const sentenceSimilarity = (first, second) => {
-  const text1 = typeof first === "string" ? first : first.text;
-  const text2 = typeof second === "string" ? second : second.text;
+  const text1 = typeof first === "string" ? first : first?.text || "";
+  const text2 = typeof second === "string" ? second : second?.text || "";
+
+  if (!text1 || !text2) return 0;
+
   const firstWords = new Set(tokenize(text1));
   const secondWords = new Set(tokenize(text2));
 
@@ -456,7 +459,7 @@ const createInBrowserSummary = (
   const selected = [];
   for (const candidate of ranked) {
     const isDup = selected.some(
-      (existing) => sentenceSimilarity(candidate.text, existing.text) > 0.55
+      (existing) => sentenceSimilarity(candidate.text, existing) > 0.55
     );
     if (!isDup) selected.push(candidate);
     if (selected.length >= summaryTarget) break;
@@ -474,7 +477,7 @@ const createInBrowserSummary = (
   const keyPoints = [];
   for (const candidate of ranked) {
     const isDup = keyPoints.some(
-      (existing) => sentenceSimilarity(candidate.text, existing.text) > 0.42
+      (existing) => sentenceSimilarity(candidate.text, existing) > 0.42
     );
     if (!isDup) keyPoints.push(candidate.text);
     if (keyPoints.length >= keyPointTarget) break;
