@@ -33,6 +33,27 @@ const KEEP_SHORT_WORDS = new Set([
   "us", "we", "ai", "ml", "ui", "ux", "id", "api"
 ]);
 
+// Real acronyms/initialisms worth preserving in ALL CAPS when we
+// normalize random OCR/extraction capitalization below. Anything
+// ALL-CAPS that is NOT in this set gets treated as a casing glitch.
+const KNOWN_ACRONYMS = new Set([
+  "AI", "ML", "NLP", "API", "URL", "HTTP", "HTTPS", "PDF", "CSV", "JSON",
+  "XML", "HTML", "CSS", "SQL", "CEO", "CFO", "CTO", "USA", "UK", "EU",
+  "UN", "NASA", "FBI", "CIA", "FAQ", "ID", "IT", "OS", "CPU", "GPU",
+  "RAM", "USB", "TV", "PC", "UI", "UX", "GDP", "WHO", "NATO", "IPO"
+]);
+
+// Fixes random mid-sentence ALL-CAPS words coming from OCR/PDF extraction
+// glitches (e.g. "the DOCTOR Went TO the Hospital") without touching real
+// acronyms. This runs on the client fallback path, which is what actually
+// serves the summary whenever the backend AI engine is unreachable.
+const normalizeRandomCaps = (text) => {
+  if (!text) return "";
+  return text.replace(/\b[A-Z]{2,}\b/g, (word) =>
+    KNOWN_ACRONYMS.has(word) ? word : word.toLowerCase()
+  );
+};
+
 const SAMPLE_DOCS = {
   ai: `Artificial intelligence (AI) has rapidly transformed from an experimental academic field into an indispensable cornerstone of modern technology. Large language models (LLMs) and deep neural networks are now capable of understanding natural language, synthesizing complex documents, generating creative media, and writing software code with unprecedented speed.
 
@@ -167,6 +188,11 @@ const fixGrammarAndHomophones = (text) => {
   if (!text) return "";
 
   let t = text.trim();
+
+  // Normalize stray ALL-CAPS words before anything else, so later steps
+  // (like re-capitalizing the first letter of each sentence) work on
+  // already-normalized casing instead of fighting it.
+  t = normalizeRandomCaps(t);
 
   // 1. Article agreement ("a" vs "an" with phonetic exceptions)
   t = t.replace(/\b([Aa])\s+([aeiouAEIOU]\w*)/g, (match, p1, p2) => {
