@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { createWorker } from "tesseract.js";
+import { createWorker, PSM } from "tesseract.js";
 import mammoth from "mammoth";
 import JSZip from "jszip";
 import "./App.css";
@@ -572,6 +572,96 @@ const extractTextFromPDF = async (file, setProgress) => {
   };
 };
 
+// --- OCR image preprocessing --------------------------------------------
+// Photographed documents (ID cards, phone photos of forms) almost always
+// have uneven lighting, low contrast, and background clutter (photos,
+// logos, watermarks). Feeding that straight into Tesseract's default
+// fully-automatic page segmentation is exactly what produces garbled,
+// nonsensical output — the engine tries to read image regions (a photo,
+// a logo) as if they were text. This preprocessing step fixes the input
+// image itself, which matters far more than any post-processing of the
+// resulting garbled text ever could.
+const MIN_OCR_WIDTH = 1600; // Tesseract performs best around 300dpi-equivalent text height
+
+const preprocessCanvasForOCR = (sourceCanvas) => {
+  const srcW = sourceCanvas.width;
+  const srcH = sourceCanvas.height;
+  const scale = srcW < MIN_OCR_WIDTH ? MIN_OCR_WIDTH / srcW : 1;
+
+  const outCanvas = document.createElement("canvas");
+  outCanvas.width = Math.round(srcW * scale);
+  outCanvas.height = Math.round(srcH * scale);
+  const ctx = outCanvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(sourceCanvas, 0, 0, outCanvas.width, outCanvas.height);
+
+  const imageData = ctx.getImageData(0, 0, outCanvas.width, outCanvas.height);
+  const data = imageData.data;
+  const pixelCount = outCanvas.width * outCanvas.height;
+
+  // 1. Grayscale (luminosity method — matches human perceived brightness
+  // better than a flat average of R/G/B).
+  const gray = new Uint8ClampedArray(pixelCount);
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    gray[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  }
+
+  // 2. Otsu's method: automatically finds the best black/white threshold
+  // for THIS image's lighting, rather than a fixed guess that only works
+  // for one lighting condition. This is what makes text stand out sharply
+  // against a photographed background instead of blending into noise.
+  const histogram = new Array(256).fill(0);
+  for (let i = 0; i < pixelCount; i++) histogram[gray[i]]++;
+  let sum = 0;
+  for (let t = 0; t < 256; t++) sum += t * histogram[t];
+  let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += histogram[t];
+    if (wB === 0) continue;
+    wF = pixelCount - wB;
+    if (wF === 0) break;
+    sumB += t * histogram[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const varBetween = wB * wF * (mB - mF) * (mB - mF);
+    if (varBetween > varMax) {
+      varMax = varBetween;
+      threshold = t;
+    }
+  }
+
+  // 3. Apply binarization.
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    const v = gray[p] > threshold ? 255 : 0;
+    data[i] = data[i + 1] = data[i + 2] = v;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return outCanvas;
+};
+
+// Loads a File/Blob into a plain <canvas> so it can be preprocessed the
+// same way regardless of whether it came from a file input or a rendered
+// PDF page.
+const loadFileToCanvas = (file) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext("2d").drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas);
+    };
+    img.onerror = (err) => {
+      URL.revokeObjectURL(img.src);
+      reject(err);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+
 const ocrScannedPDF = async (pdf, setProgress) => {
   const worker = await createWorker("eng");
 
@@ -600,9 +690,15 @@ const ocrScannedPDF = async (pdf, setProgress) => {
       viewport
     }).promise;
 
+    // Scanned pages are typically one uniform block of text, so
+    // preprocessing (contrast/binarization) plus PSM.AUTO_ONLY (fully
+    // automatic layout, no OSD) works well here without extra overhead.
+    const processedCanvas = preprocessCanvasForOCR(canvas);
+    await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
+
     const {
       data: { text }
-    } = await worker.recognize(canvas);
+    } = await worker.recognize(processedCanvas);
 
     fullText += text + "\n";
   }
@@ -614,14 +710,27 @@ const ocrScannedPDF = async (pdf, setProgress) => {
 
 const extractTextFromImage = async (file, setProgress) => {
   setProgress(
+    "Preparing image for OCR (contrast, sharpening)..."
+  );
+
+  const rawCanvas = await loadFileToCanvas(file);
+  const processedCanvas = preprocessCanvasForOCR(rawCanvas);
+
+  setProgress(
     "Scanning image with Tesseract OCR engine..."
   );
 
   const worker = await createWorker("eng");
 
+  // ID cards, forms, and other photographed documents have text scattered
+  // in blocks around photos/logos rather than one uniform paragraph — the
+  // default PSM (fully automatic layout) tends to misread those non-text
+  // regions. PSM.SPARSE_TEXT is built for exactly this case.
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+
   const {
     data: { text }
-  } = await worker.recognize(file);
+  } = await worker.recognize(processedCanvas);
 
   await worker.terminate();
 
