@@ -8,4 +8,4 @@ ftfy
 spacy
 google-genai==0.1.1
 google-genai==2.19.0
-google-genai>=2.0.0
+google-genai==2.0.0
