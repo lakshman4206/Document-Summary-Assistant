@@ -6,3 +6,4 @@ pyspellchecker
 nltk
 ftfy
 spacy
+google-genai==0.1.1
